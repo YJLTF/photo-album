@@ -19,6 +19,7 @@ export default function Home() {
   const createAlbum = useStore((s) => s.createAlbum);
   const deleteAlbum = useStore((s) => s.deleteAlbum);
   const renameAlbum = useStore((s) => s.renameAlbum);
+  const updateAlbumCover = useStore((s) => s.updateAlbumCover);
   const tags = useStore((s) => s.tags);
   const fetchTags = useStore((s) => s.fetchTags);
   const createTag = useStore((s) => s.createTag);
@@ -50,12 +51,17 @@ export default function Home() {
     const loadCounts = async () => {
       const counts: Record<string, number> = {};
       for (const album of albums) {
-        counts[album.id] = await db.images.where("albumId").equals(album.id).count();
+        const images = await db.images.where("albumId").equals(album.id).sortBy("createdAt");
+        counts[album.id] = images.length;
+        // 如果相册没有设置封面且有图片，自动设置第一张为封面
+        if (!album.coverImageId && images.length > 0) {
+          await updateAlbumCover(album.id, images[0].id);
+        }
       }
       setImageCounts(counts);
     };
     if (albums.length > 0) loadCounts();
-  }, [albums]);
+  }, [albums, updateAlbumCover]);
 
   useEffect(() => {
     const loadSlideshowCounts = async () => {
@@ -208,6 +214,20 @@ export default function Home() {
                 onClick={() => navigate(`/album/${album.id}`)}
                 onEdit={() => { setEditingAlbum({ id: album.id, name: album.name }); setEditName(album.name); }}
                 onDelete={() => deleteAlbum(album.id)}
+                onUploadCover={() => {
+                  const input = document.createElement('input');
+                  input.type = 'file';
+                  input.accept = 'image/*';
+                  input.onchange = async (e) => {
+                    const file = (e.target as HTMLInputElement).files?.[0];
+                    if (!file) return;
+                    // 添加到相册的图片
+                    const newImage = await addImage(album.id, file);
+                    // 设置为封面
+                    await updateAlbumCover(album.id, newImage.id);
+                  };
+                  input.click();
+                }}
               />
             ))}
           </div>

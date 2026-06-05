@@ -5,6 +5,7 @@ import AlbumDetail from "@/pages/AlbumDetail";
 import ImagePreview from "@/pages/ImagePreview";
 import SlideshowEdit from "@/pages/SlideshowEdit";
 import SlideshowPlay from "@/pages/SlideshowPlay";
+import Tags from "@/pages/Tags";
 
 export default function App() {
   return (
@@ -18,6 +19,7 @@ export default function App() {
         <Route element={<Layout />}>
           <Route path="/" element={<Home />} />
           <Route path="/album/:albumId" element={<AlbumDetail />} />
+          <Route path="/tags" element={<Tags />} />
           <Route path="/slideshow/edit" element={<SlideshowEdit />} />
         </Route>
       </Routes>

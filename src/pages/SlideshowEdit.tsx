@@ -1,13 +1,20 @@
 import { useState, useEffect, useCallback } from 'react';
 import { useSearchParams, useNavigate } from 'react-router-dom';
-import { Play, Save, Plus, Trash2, ChevronUp, ChevronDown, Image as ImageIcon } from 'lucide-react';
+import { Play, Save, Plus, Trash2, ChevronUp, ChevronDown, Image as ImageIcon, FolderOpen } from 'lucide-react';
 import { useStore, objectUrls } from '@/lib/store';
 import { db } from '@/lib/db';
 import { cn } from '@/lib/utils';
 import TransitionPreview from '@/components/TransitionPreview';
-import type { TransitionEffect, TextPosition, SlideshowImage, ImageItem } from '@/lib/types';
+import type { TransitionEffect, TextPosition, SlideshowImage, ImageItem, Slideshow } from '@/lib/types';
 
 const EFFECTS: TransitionEffect[] = ['fade', 'slide', 'zoom', 'flip', 'blur'];
+const effectLabels: Record<TransitionEffect, string> = {
+  fade: '淡入淡出',
+  slide: '滑动',
+  zoom: '缩放',
+  flip: '翻转',
+  blur: '模糊',
+};
 const POSITIONS: TextPosition[] = ['top-left', 'top-center', 'top-right', 'center', 'bottom-left', 'bottom-center', 'bottom-right'];
 const POS_LABELS: Record<TextPosition, string> = {
   'top-left': '左上', 'top-center': '上中', 'top-right': '右上',
@@ -45,8 +52,33 @@ export default function SlideshowEdit() {
   const [albumImages, setAlbumImages] = useState<ImageItem[]>([]);
   const [saving, setSaving] = useState(false);
   const [existingId, setExistingId] = useState<string | null>(null);
+  const [slideshows, setSlideshows] = useState<Slideshow[]>([]);
 
-  useEffect(() => { fetchAlbums(); }, [fetchAlbums]);
+  useEffect(() => { 
+    fetchAlbums(); 
+    loadSlideshows();
+  }, [fetchAlbums]);
+
+  const loadSlideshows = async () => {
+    const allSlideshows = await db.slideshows.toArray();
+    setSlideshows(allSlideshows);
+  };
+
+  const loadSlideshow = async (id: string) => {
+    const sl = await db.slideshows.get(id);
+    if (!sl) return;
+    setExistingId(sl.id);
+    setName(sl.name);
+    setEffect(sl.transitionEffect);
+    setInterval(sl.interval);
+    setAutoPlay(sl.autoPlay);
+    const si = await db.slideshowImages.where('slideshowId').equals(sl.id).sortBy('order');
+    setSlides(si.map(s => ({
+      imageId: s.imageId, overlayText: s.overlayText,
+      textPosition: s.textPosition, textColor: s.textColor, textSize: s.textSize,
+    })));
+    setSelectedIdx(-1);
+  };
 
   // Load existing slideshow
   useEffect(() => {
@@ -147,6 +179,34 @@ export default function SlideshowEdit() {
       {/* Header */}
       <header className="flex items-center gap-4 px-6 py-3 border-b border-white/5 bg-[#16213E]">
         <h1 className="text-lg font-semibold whitespace-nowrap" style={{ fontFamily: "'Playfair Display', serif" }}>编辑轮播</h1>
+        <select 
+          value={existingId || ''} 
+          onChange={e => { 
+            const val = e.target.value;
+            if (val) {
+              loadSlideshow(val);
+              // 更新URL参数，这样返回时能保留状态
+              const newParams = new URLSearchParams();
+              newParams.set('slideshowId', val);
+              navigate(`?${newParams.toString()}`);
+            } else {
+              // Reset to new slideshow
+              setExistingId(null);
+              setName('未命名轮播');
+              setEffect('fade');
+              setInterval(3);
+              setAutoPlay(true);
+              setSlides([]);
+              setSelectedIdx(-1);
+              navigate('/slideshow/edit');
+            }
+          }}
+          className="max-w-xs bg-[#1A1A2E] border border-white/10 rounded-lg px-3 py-1.5 text-sm text-[#F5F0EB] outline-none focus:border-[#E8845C]/50">
+          <option value="" className="bg-[#1A1A2E] text-[#F5F0EB]/60">选择已保存的轮播...</option>
+          {slideshows.map(sl => (
+            <option key={sl.id} value={sl.id} className="bg-[#1A1A2E] text-[#F5F0EB]">{sl.name}</option>
+          ))}
+        </select>
         <input value={name} onChange={e => setName(e.target.value)}
           className="flex-1 max-w-xs bg-white/5 border border-white/10 rounded-lg px-3 py-1.5 text-sm text-[#F5F0EB] outline-none focus:border-[#E8845C]/50" />
         <button onClick={handleSave} disabled={saving}
@@ -165,9 +225,9 @@ export default function SlideshowEdit() {
         <aside className="w-56 border-r border-white/5 bg-[#16213E]/50 flex flex-col overflow-hidden">
           <div className="px-3 py-2 border-b border-white/5">
             <select value={selectedAlbumId} onChange={e => setSelectedAlbumId(e.target.value)}
-              className="w-full bg-white/5 border border-white/10 rounded-lg px-2 py-1.5 text-sm text-[#F5F0EB] outline-none">
-              <option value="">选择相册...</option>
-              {albums.map(a => <option key={a.id} value={a.id}>{a.name}</option>)}
+              className="w-full bg-[#1A1A2E] border border-white/10 rounded-lg px-2 py-1.5 text-sm text-[#F5F0EB] outline-none focus:border-[#E8845C]/50">
+              <option value="" className="bg-[#1A1A2E] text-[#F5F0EB]/60">选择相册...</option>
+              {albums.map(a => <option key={a.id} value={a.id} className="bg-[#1A1A2E] text-[#F5F0EB]">{a.name}</option>)}
             </select>
           </div>
           <div className="flex-1 overflow-y-auto p-2 grid grid-cols-2 gap-1.5 auto-rows-min content-start">
@@ -209,8 +269,8 @@ export default function SlideshowEdit() {
                     className="w-full bg-transparent border-b border-white/5 text-sm py-0.5 outline-none focus:border-[#E8845C]/40 placeholder:text-white/20" />
                   <div className="flex items-center gap-2 mt-1">
                     <select value={slide.textPosition} onChange={e => updateSlide(idx, { textPosition: e.target.value as TextPosition })}
-                      className="bg-white/5 border border-white/10 rounded px-1 py-0.5 text-xs outline-none text-[#F5F0EB]">
-                      {POSITIONS.map(p => <option key={p} value={p}>{POS_LABELS[p]}</option>)}
+                      className="bg-[#1A1A2E] border border-white/10 rounded px-1 py-0.5 text-xs outline-none text-[#F5F0EB] focus:border-[#E8845C]/50">
+                      {POSITIONS.map(p => <option key={p} value={p} className="bg-[#1A1A2E] text-[#F5F0EB]">{POS_LABELS[p]}</option>)}
                     </select>
                     <input type="color" value={slide.textColor} onChange={e => updateSlide(idx, { textColor: e.target.value })}
                       className="w-5 h-5 rounded cursor-pointer border-0 bg-transparent" />
@@ -232,28 +292,27 @@ export default function SlideshowEdit() {
         {/* Right - Settings */}
         <aside className="w-64 border-l border-white/5 bg-[#16213E]/50 overflow-y-auto p-4 space-y-5">
           <div>
-            <label className="text-xs text-[#F5F0EB]/50 mb-1 block">轮播名称</label>
-            <input value={name} onChange={e => setName(e.target.value)}
-              className="w-full bg-white/5 border border-white/10 rounded-lg px-3 py-1.5 text-sm outline-none focus:border-[#E8845C]/50" />
-          </div>
-          <div>
-            <label className="text-xs text-[#F5F0EB]/50 mb-2 block">转场效果</label>
-            <div className="grid grid-cols-2 gap-2">
+            <label className="text-xs text-[#F5F0EB]/50 mb-2.5 block">转场效果</label>
+            <div className="grid grid-cols-3 gap-2">
               {EFFECTS.map(e => (
                 <button key={e} onClick={() => setEffect(e)}
-                  className={cn('rounded-xl p-1.5 border transition-all', effect === e ? 'border-[#E8845C]/50 bg-[#E8845C]/5' : 'border-white/5 hover:border-white/10')}>
-                  <TransitionPreview effect={e} />
+                  className={cn('flex flex-col items-center gap-1.5 p-2 rounded-lg border transition-all', 
+                    effect === e ? 'border-[#E8845C]/50 bg-[#E8845C]/10' : 'border-white/5 hover:border-white/15 hover:bg-white/5')}>
+                  <div className="w-8 h-8 rounded-md overflow-hidden bg-white/[0.03] border border-white/5">
+                    <TransitionPreview effect={e} compact />
+                  </div>
+                  <span className="text-xs text-[#F5F0EB]/60">{effectLabels[e]}</span>
                 </button>
               ))}
             </div>
           </div>
           <div>
-            <label className="text-xs text-[#F5F0EB]/50 mb-1 block">间隔时间: {interval}秒</label>
+            <label className="text-xs text-[#F5F0EB]/50 mb-1.5 block">间隔时间: <span className="text-[#F5F0EB] font-medium">{interval}</span>秒</label>
             <input type="range" min={1} max={10} value={interval} onChange={e => setInterval(Number(e.target.value))}
               className="w-full accent-[#E8845C]" />
           </div>
           <div>
-            <label className="text-xs text-[#F5F0EB]/50 mb-1 block">文字大小: {selectedIdx >= 0 ? slides[selectedIdx]?.textSize : '-'}px</label>
+            <label className="text-xs text-[#F5F0EB]/50 mb-1.5 block">文字大小: <span className="text-[#F5F0EB] font-medium">{selectedIdx >= 0 ? slides[selectedIdx]?.textSize : '-'}</span>px</label>
             {selectedIdx >= 0 && (
               <input type="range" min={10} max={48} value={slides[selectedIdx].textSize}
                 onChange={e => updateSlide(selectedIdx, { textSize: Number(e.target.value) })}

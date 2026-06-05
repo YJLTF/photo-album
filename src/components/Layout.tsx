@@ -8,6 +8,7 @@ export default function Layout() {
 
   const getActiveKey = () => {
     if (location.pathname.startsWith("/slideshow")) return "slideshows";
+    if (location.pathname.startsWith("/tags")) return "tags";
     if (location.pathname.startsWith("/album")) return "albums";
     return "albums";
   };
@@ -18,7 +19,7 @@ export default function Layout() {
         navigate("/");
         break;
       case "tags":
-        navigate("/");
+        navigate("/tags");
         break;
       case "slideshows":
         navigate("/slideshow/edit");

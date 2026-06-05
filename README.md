@@ -1,57 +1,111 @@
-# React + TypeScript + Vite
+# 个人相册应用
 
-This template provides a minimal setup to get React working in Vite with HMR and some ESLint rules.
+一款面向个人用户的本地化图片管理工具，支持图片上传、预览、相册分类、标签管理以及自定义轮播播放。所有数据存储在浏览器本地（IndexedDB），无需服务器，保护隐私。
 
-Currently, two official plugins are available:
+## 功能特性
 
-- [@vitejs/plugin-react](https://github.com/vitejs/vite-plugin-react/blob/main/packages/plugin-react) uses [Babel](https://babeljs.io/) for Fast Refresh
-- [@vitejs/plugin-react-swc](https://github.com/vitejs/vite-plugin-react/blob/main/packages/plugin-react-swc) uses [SWC](https://swc.rs/) for Fast Refresh
+### 📁 相册管理
+- 创建、删除、重命名相册
+- 相册卡片展示，包含封面图、名称和图片数量
 
-## Expanding the ESLint configuration
+### 🖼️ 图片管理
+- 拖拽或点击上传图片
+- 瀑布流/网格展示图片
+- 全屏预览，支持缩放和左右切换
+- 图片信息查看（文件名、大小、上传时间）
 
-If you are developing a production application, we recommend updating the configuration to enable type-aware lint rules:
+### 🏷️ 标签管理
+- 为图片添加/移除标签
+- 多标签组合筛选图片
 
-```js
-export default tseslint.config({
-  extends: [
-    // Remove ...tseslint.configs.recommended and replace with this
-    ...tseslint.configs.recommendedTypeChecked,
-    // Alternatively, use this for stricter rules
-    ...tseslint.configs.strictTypeChecked,
-    // Optionally, add this for stylistic rules
-    ...tseslint.configs.stylisticTypeChecked,
-  ],
-  languageOptions: {
-    // other options...
-    parserOptions: {
-      project: ['./tsconfig.node.json', './tsconfig.app.json'],
-      tsconfigRootDir: import.meta.dirname,
-    },
-  },
-})
+### 🎬 轮播功能
+- 从相册中选择轮播图片
+- 多种切换效果（淡入淡出、滑动、缩放、翻转）
+- 为每张图片添加自定义文字（标题、描述）
+- 设置切换间隔和自动播放
+- 全屏沉浸式播放体验
+
+## 技术栈
+
+- **框架**: React 18 + TypeScript
+- **构建工具**: Vite 6
+- **样式**: Tailwind CSS 3
+- **状态管理**: Zustand
+- **路由**: React Router DOM 7
+- **数据库**: Dexie（IndexedDB）
+- **图标**: Lucide React
+
+## 快速开始
+
+### 安装依赖
+
+```bash
+npm install
 ```
 
-You can also install [eslint-plugin-react-x](https://github.com/Rel1cx/eslint-react/tree/main/packages/plugins/eslint-plugin-react-x) and [eslint-plugin-react-dom](https://github.com/Rel1cx/eslint-react/tree/main/packages/plugins/eslint-plugin-react-dom) for React-specific lint rules:
+### 开发模式
 
-```js
-// eslint.config.js
-import reactX from 'eslint-plugin-react-x'
-import reactDom from 'eslint-plugin-react-dom'
-
-export default tseslint.config({
-  extends: [
-    // other configs...
-    // Enable lint rules for React
-    reactX.configs['recommended-typescript'],
-    // Enable lint rules for React DOM
-    reactDom.configs.recommended,
-  ],
-  languageOptions: {
-    // other options...
-    parserOptions: {
-      project: ['./tsconfig.node.json', './tsconfig.app.json'],
-      tsconfigRootDir: import.meta.dirname,
-    },
-  },
-})
+```bash
+npm run dev
 ```
+
+### 构建生产版本
+
+```bash
+npm run build
+```
+
+### 预览生产版本
+
+```bash
+npm run preview
+```
+
+### 代码检查
+
+```bash
+npm run lint
+npm run check
+```
+
+## 项目结构
+
+```
+src/
+├── components/       # 组件目录
+│   ├── AlbumCard.tsx      # 相册卡片
+│   ├── ImageCard.tsx      # 图片卡片
+│   ├── Layout.tsx         # 布局组件
+│   ├── Sidebar.tsx        # 侧边栏
+│   ├── UploadZone.tsx     # 上传区域
+│   └── ...
+├── pages/            # 页面目录
+│   ├── Home.tsx           # 相册主页
+│   ├── AlbumDetail.tsx    # 相册详情页
+│   ├── ImagePreview.tsx   # 图片预览页
+│   ├── SlideshowEdit.tsx  # 轮播编辑页
+│   └── SlideshowPlay.tsx  # 轮播播放页
+├── lib/              # 工具库
+│   ├── db.ts              # 数据库操作
+│   ├── store.ts           # 状态管理
+│   ├── types.ts           # 类型定义
+│   └── utils.ts           # 工具函数
+└── hooks/            # 自定义 Hooks
+    └── useTheme.ts        # 主题切换
+```
+
+## 设计风格
+
+- **主色调**: 深色主题，主色为暖橙 `#E8845C`
+- **背景色**: 深灰渐变 `#1A1A2E` → `#16213E`
+- **图标**: Lucide 线性图标
+- **布局**: 左侧导航栏 + 右侧内容区，卡片式布局
+
+## 核心流程
+
+1. **图片上传与管理**: 进入主页 → 创建/选择相册 → 上传图片 → 添加标签 → 浏览筛选
+2. **轮播制作与播放**: 进入轮播编辑 → 选择图片 → 配置效果 → 添加文字 → 预览播放
+
+## 隐私保护
+
+所有数据存储在浏览器本地（IndexedDB），无需登录，无需上传至服务器，完全保护您的隐私。

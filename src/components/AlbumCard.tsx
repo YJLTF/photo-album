@@ -1,13 +1,14 @@
-import { FolderOpen, Pencil, Trash2, Image } from "lucide-react";
+import { FolderOpen, Pencil, Trash2, Image, Upload } from "lucide-react";
 
 interface AlbumCardProps {
   album: { id: string; name: string; coverUrl?: string; imageCount: number };
   onEdit: () => void;
   onDelete: () => void;
+  onUploadCover: () => void;
   onClick: () => void;
 }
 
-export default function AlbumCard({ album, onEdit, onDelete, onClick }: AlbumCardProps) {
+export default function AlbumCard({ album, onEdit, onDelete, onUploadCover, onClick }: AlbumCardProps) {
   return (
     <div
       onClick={onClick}
@@ -30,6 +31,16 @@ export default function AlbumCard({ album, onEdit, onDelete, onClick }: AlbumCar
 
         {/* Hover overlay with action buttons */}
         <div className="absolute inset-0 bg-black/40 opacity-0 group-hover:opacity-100 transition-opacity duration-300 flex items-center justify-center gap-3">
+          <button
+            onClick={(e) => {
+              e.stopPropagation();
+              onUploadCover();
+            }}
+            className="w-9 h-9 rounded-full bg-white/15 backdrop-blur-sm flex items-center justify-center text-[#F5F0EB] hover:bg-[#5CE8A0] hover:text-white transition-colors"
+            title="上传封面"
+          >
+            <Upload size={15} />
+          </button>
           <button
             onClick={(e) => {
               e.stopPropagation();

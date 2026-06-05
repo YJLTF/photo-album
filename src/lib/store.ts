@@ -122,6 +122,15 @@ export const useStore = create<StoreState>((set) => ({
     }));
   },
 
+  updateAlbumCover: async (id, coverImageId: string | null) => {
+    const updatedAt = new Date().toISOString();
+    await db.albums.update(id, { coverImageId, updatedAt });
+    set((s) => ({
+      albums: s.albums.map((a) => (a.id === id ? { ...a, coverImageId, updatedAt } : a)),
+      currentAlbum: s.currentAlbum?.id === id ? { ...s.currentAlbum, coverImageId, updatedAt } : s.currentAlbum,
+    }));
+  },
+
   deleteAlbum: async (id) => {
     await db.albums.delete(id);
     set((s) => ({

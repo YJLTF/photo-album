@@ -151,14 +151,14 @@ export default function SlideshowPlay() {
       if (e.key === ' ') { e.preventDefault(); setIsPlaying((p) => !p); }
       else if (e.key === 'ArrowRight') goNext();
       else if (e.key === 'ArrowLeft') goPrev();
-      else if (e.key === 'Escape') navigate('/slideshow/edit');
+      else if (e.key === 'Escape') navigate(-1);
       resetHideTimer();
     };
     window.addEventListener('keydown', handler);
     return () => window.removeEventListener('keydown', handler);
   }, [goNext, goPrev, navigate, resetHideTimer]);
 
-  const exit = () => navigate('/slideshow/edit');
+  const exit = () => navigate(-1);
 
   if (!currentSlideshow || images.length === 0) {
     return (
