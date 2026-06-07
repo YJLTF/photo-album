@@ -1,164 +1,190 @@
-import { useEffect, useState, useCallback, useRef } from 'react';
+import { useState, useEffect, useCallback, useRef } from 'react';
 import { useSearchParams, useNavigate } from 'react-router-dom';
-import { Play, Pause, ChevronLeft, ChevronRight, X } from 'lucide-react';
-import { useStore, objectUrls } from '@/lib/store';
-import { db } from '@/lib/db';
-import type { SlideshowImage, TransitionEffect, TextPosition } from '@/lib/types';
-
-const positionClasses: Record<TextPosition, string> = {
-  'top-left': 'top-6 left-6',
-  'top-center': 'top-6 left-1/2 -translate-x-1/2',
-  'top-right': 'top-6 right-6',
-  'center': 'top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2',
-  'bottom-left': 'bottom-6 left-6',
-  'bottom-center': 'bottom-6 left-1/2 -translate-x-1/2',
-  'bottom-right': 'bottom-6 right-6',
-};
-
-const transitionEnter: Record<TransitionEffect, string> = {
-  fade: 'opacity-100',
-  slide: 'opacity-100 translate-x-0',
-  zoom: 'opacity-100 scale-100',
-  flip: 'opacity-100 rotate-y-0',
-  blur: 'opacity-100 blur-0',
-};
-
-const transitionExit: Record<TransitionEffect, string> = {
-  fade: 'opacity-0',
-  slide: 'opacity-0 translate-x-full',
-  zoom: 'opacity-0 scale-75',
-  flip: 'opacity-0 rotate-y-90',
-  blur: 'opacity-0 blur-xl',
-};
+import { ChevronLeft, ChevronRight, Volume2, VolumeX, RotateCcw } from 'lucide-react';
+import { slideshowApi, imageApi, albumApi, type SlideshowWithImages, type ImageItem } from '@/lib/api';
 
 export default function SlideshowPlay() {
-  const [searchParams] = useSearchParams();
+  const [params] = useSearchParams();
   const navigate = useNavigate();
-  const slideshowId = searchParams.get('slideshowId');
+  const slideshowId = params.get('slideshowId');
+  const albumId = params.get('albumId');
 
-  const currentSlideshow = useStore((s) => s.currentSlideshow);
-  const setCurrentSlideshow = useStore((s) => s.setCurrentSlideshow);
-  const fetchSlideshows = useStore((s) => s.fetchSlideshows);
-
-  const [images, setImages] = useState<SlideshowImage[]>([]);
+  const [currentSlideshow, setCurrentSlideshow] = useState<SlideshowWithImages | null>(null);
+  const [images, setImages] = useState<ImageItem[]>([]);
   const [imageUrls, setImageUrls] = useState<Record<string, string>>({});
   const [currentIndex, setCurrentIndex] = useState(0);
-  const [isPlaying, setIsPlaying] = useState(false);
-  const [showControls, setShowControls] = useState(true);
-  const [transitioning, setTransitioning] = useState(false);
-  const [slideProgress, setSlideProgress] = useState(0);
+  const [isPlaying, setIsPlaying] = useState(true);
+  const [isMuted, setIsMuted] = useState(true);
+  const [showControls, setShowControls] = useState(false);
+  const [transitionClass, setTransitionClass] = useState('');
 
-  const hideTimer = useRef<ReturnType<typeof setTimeout>>();
-  const playTimer = useRef<ReturnType<typeof setInterval>>();
-  const progressTimer = useRef<ReturnType<typeof setInterval>>();
+  const hideTimerRef = useRef<number | null>(null);
+  const effectRef = useRef<string>('fade');
 
-  // Load slideshow and images
-  useEffect(() => {
-    if (!slideshowId) return;
-    (async () => {
-      await fetchSlideshows();
-      const slideshow = await db.slideshows.get(slideshowId);
-      if (slideshow) setCurrentSlideshow(slideshow);
-
-      const slides = await db.slideshowImages
-        .where('slideshowId')
-        .equals(slideshowId)
-        .sortBy('order');
-      setImages(slides);
-
-      const urls: Record<string, string> = {};
-      for (const slide of slides) {
-        if (!objectUrls.has(slide.imageId)) {
-          const img = await db.images.get(slide.imageId);
-          if (img) {
-            const blob = await db.blobs.get(img.blobKey);
-            if (blob) objectUrls.set(slide.imageId, URL.createObjectURL(blob.data));
-          }
-        }
-        const url = objectUrls.get(slide.imageId);
-        if (url) urls[slide.imageId] = url;
-      }
-      setImageUrls(urls);
-    })();
-  }, [slideshowId, fetchSlideshows, setCurrentSlideshow]);
-
-  // Auto-play
-  useEffect(() => {
-    if (currentSlideshow) setIsPlaying(currentSlideshow.autoPlay);
-  }, [currentSlideshow]);
-
-  const goNext = useCallback(() => {
-    if (images.length === 0 || transitioning) return;
-    setTransitioning(true);
-    setTimeout(() => {
-      setCurrentIndex((i) => (i + 1) % images.length);
-      setSlideProgress(0);
-      setTransitioning(false);
-    }, 500);
-  }, [images.length, transitioning]);
-
-  const goPrev = useCallback(() => {
-    if (images.length === 0 || transitioning) return;
-    setTransitioning(true);
-    setTimeout(() => {
-      setCurrentIndex((i) => (i - 1 + images.length) % images.length);
-      setSlideProgress(0);
-      setTransitioning(false);
-    }, 500);
-  }, [images.length, transitioning]);
-
-  // Play timer
-  useEffect(() => {
-    if (isPlaying && currentSlideshow && images.length > 1) {
-      const interval = currentSlideshow.interval * 1000;
-      playTimer.current = setInterval(goNext, interval);
-      return () => clearInterval(playTimer.current);
-    }
-  }, [isPlaying, currentSlideshow, images.length, goNext]);
-
-  // Progress timer
-  useEffect(() => {
-    if (isPlaying && currentSlideshow) {
-      const total = currentSlideshow.interval * 1000;
-      const step = 50;
-      progressTimer.current = setInterval(() => {
-        setSlideProgress((p) => {
-          const next = p + (step / total) * 100;
-          return next >= 100 ? 0 : next;
-        });
-      }, step);
-      return () => clearInterval(progressTimer.current);
-    } else {
-      setSlideProgress(0);
-    }
-  }, [isPlaying, currentSlideshow]);
-
-  // Auto-hide controls
   const resetHideTimer = useCallback(() => {
+    if (hideTimerRef.current) clearTimeout(hideTimerRef.current);
     setShowControls(true);
-    clearTimeout(hideTimer.current);
-    hideTimer.current = setTimeout(() => setShowControls(false), 3000);
+    hideTimerRef.current = window.setTimeout(() => setShowControls(false), 3000);
   }, []);
 
   useEffect(() => {
     resetHideTimer();
-    return () => clearTimeout(hideTimer.current);
+    document.addEventListener('mousemove', resetHideTimer);
+    document.addEventListener('touchstart', resetHideTimer);
+    return () => {
+      document.removeEventListener('mousemove', resetHideTimer);
+      document.removeEventListener('touchstart', resetHideTimer);
+      if (hideTimerRef.current) clearTimeout(hideTimerRef.current);
+    };
   }, [resetHideTimer]);
 
-  // Keyboard controls
+  useEffect(() => {
+    if (currentSlideshow) {
+      effectRef.current = currentSlideshow.transitionEffect;
+    }
+  }, [currentSlideshow]);
+
+  useEffect(() => {
+    const fetchData = async () => {
+      if (slideshowId) {
+        const slideshow = await slideshowApi.getById(slideshowId);
+        setCurrentSlideshow(slideshow);
+        
+        const urls: Record<string, string> = {};
+        const imgData: ImageItem[] = [];
+        
+        for (const slide of slideshow.images) {
+          const blob = await imageApi.getById(slide.imageId);
+          const url = URL.createObjectURL(blob);
+          urls[slide.imageId] = url;
+          imgData.push({ id: slide.imageId, albumId: '', name: '', filePath: '', fileSize: 0, width: 0, height: 0, mimeType: '', createdAt: '' });
+        }
+        
+        setImageUrls(urls);
+        setImages(imgData);
+      } else if (albumId) {
+        const albumImages = await imageApi.getByAlbum(albumId);
+        const urls: Record<string, string> = {};
+        
+        for (const img of albumImages) {
+          const blob = await imageApi.getById(img.id);
+          urls[img.id] = URL.createObjectURL(blob);
+        }
+        
+        setImageUrls(urls);
+        setImages(albumImages);
+        setCurrentSlideshow({
+          id: 'album',
+          name: '相册轮播',
+          transitionEffect: 'fade',
+          interval: 3,
+          autoPlay: true,
+          createdAt: new Date().toISOString(),
+          images: albumImages.map((img, idx) => ({
+            id: img.id,
+            slideshowId: 'album',
+            imageId: img.id,
+            order: idx,
+            overlayText: '',
+            textPosition: 'bottom-center',
+            textColor: '#FFFFFF',
+            textSize: 16,
+          })),
+        });
+      }
+    };
+
+    fetchData();
+
+    return () => {
+      Object.values(imageUrls).forEach(url => URL.revokeObjectURL(url));
+    };
+  }, [slideshowId, albumId, imageUrls]);
+
+  useEffect(() => {
+    if (!currentSlideshow || !currentSlideshow.autoPlay || !isPlaying || images.length === 0) return;
+
+    const interval = setInterval(() => {
+      goNext();
+    }, currentSlideshow.interval * 1000);
+
+    return () => clearInterval(interval);
+  }, [currentSlideshow?.interval, currentSlideshow?.autoPlay, isPlaying, images.length]);
+
+  const goNext = useCallback(() => {
+    const currentEffect = effectRef.current;
+    setTransitionClass(`${currentEffect}-out`);
+    setTimeout(() => {
+      setCurrentIndex(prev => (prev + 1) % images.length);
+      setTransitionClass(`${currentEffect}-in`);
+    }, 300);
+  }, [images.length]);
+
+  const goPrev = useCallback(() => {
+    const currentEffect = effectRef.current;
+    setTransitionClass(`${currentEffect}-out`);
+    setTimeout(() => {
+      setCurrentIndex(prev => (prev - 1 + images.length) % images.length);
+      setTransitionClass(`${currentEffect}-in`);
+    }, 300);
+  }, [images.length]);
+
+  const getTransitionStyle = (effect: string, className: string) => {
+    switch (effect) {
+      case 'fade':
+        return { opacity: className.includes('out') ? 0 : 1, transition: 'opacity 0.3s ease' };
+      case 'slide':
+        return { 
+          transform: className.includes('out') ? 'translateX(100%)' : className.includes('in') ? 'translateX(0)' : '-translateX(100%)',
+          transition: 'transform 0.5s ease'
+        };
+      case 'zoom':
+        return { 
+          transform: className.includes('out') ? 'scale(1.2)' : className.includes('in') ? 'scale(1)' : 'scale(0.8)',
+          opacity: className.includes('out') ? 0 : 1,
+          transition: 'all 0.4s ease'
+        };
+      case 'flip':
+        return { 
+          transform: className.includes('out') ? 'rotateY(90deg)' : className.includes('in') ? 'rotateY(0)' : 'rotateY(-90deg)',
+          opacity: className.includes('out') || !className.includes('in') ? 0 : 1,
+          transition: 'all 0.5s ease',
+          transformStyle: 'preserve-3d' as const
+        };
+      case 'blur':
+        return { 
+          filter: className.includes('out') ? 'blur(20px)' : className.includes('in') ? 'blur(0)' : 'blur(20px)',
+          opacity: className.includes('out') ? 0 : 1,
+          transition: 'all 0.4s ease'
+        };
+      default:
+        return { opacity: className.includes('out') ? 0 : 1, transition: 'opacity 0.3s ease' };
+    }
+  };
+
+  const togglePlay = () => {
+    setIsPlaying(!isPlaying);
+  };
+
+  const toggleMute = () => {
+    setIsMuted(!isMuted);
+  };
+
+  const reset = () => {
+    setCurrentIndex(0);
+  };
+
+  const exit = () => navigate(-1);
+
   useEffect(() => {
     const handler = (e: KeyboardEvent) => {
-      if (e.key === ' ') { e.preventDefault(); setIsPlaying((p) => !p); }
-      else if (e.key === 'ArrowRight') goNext();
-      else if (e.key === 'ArrowLeft') goPrev();
-      else if (e.key === 'Escape') navigate(-1);
-      resetHideTimer();
+      if (e.key === 'ArrowRight' || e.key === ' ') { e.preventDefault(); goNext(); }
+      else if (e.key === 'ArrowLeft') { e.preventDefault(); goPrev(); }
+      else if (e.key === 'Escape') exit();
     };
     window.addEventListener('keydown', handler);
     return () => window.removeEventListener('keydown', handler);
-  }, [goNext, goPrev, navigate, resetHideTimer]);
-
-  const exit = () => navigate(-1);
+  }, [goNext, goPrev]);
 
   if (!currentSlideshow || images.length === 0) {
     return (
@@ -170,97 +196,98 @@ export default function SlideshowPlay() {
 
   const slide = images[currentIndex];
   const effect = currentSlideshow.transitionEffect;
-  const url = imageUrls[slide.imageId];
+  const url = imageUrls[slide.id];
+  const slideData = currentSlideshow.images.find(s => s.imageId === slide.id);
 
   return (
-    <div
-      className="fixed inset-0 bg-[#000000] select-none overflow-hidden"
-      onMouseMove={resetHideTimer}
-      style={{ perspective: '1200px' }}
-    >
-      {/* Current image */}
-      <div
-        className="absolute inset-0 flex items-center justify-center"
-        style={{ transition: 'all 500ms ease-in-out' }}
-      >
+    <div className="fixed inset-0 bg-black overflow-hidden">
+      {/* Image */}
+      <div className="absolute inset-0 flex items-center justify-center">
         <img
           src={url}
-          alt=""
-          className={`max-w-full max-h-full object-contain transition-all duration-500 ease-in-out
-            ${transitioning ? transitionExit[effect] : transitionEnter[effect]}`}
-          style={{
-            ...(effect === 'flip' ? { transformStyle: 'preserve-3d' } : {}),
-            ...(transitioning && effect === 'slide' ? { transform: 'translateX(-100%)' } : {}),
-            ...(!transitioning && effect === 'slide' ? { transform: 'translateX(0)' } : {}),
-            ...(transitioning && effect === 'flip' ? { transform: 'rotateY(-90deg)' } : {}),
-            ...(!transitioning && effect === 'flip' ? { transform: 'rotateY(0)' } : {}),
-          }}
-          draggable={false}
+          alt={slide.name}
+          className="max-w-full max-h-full object-contain"
+          style={getTransitionStyle(effect, transitionClass)}
         />
+        
+        {/* Overlay text */}
+        {slideData?.overlayText && (
+          <div
+            className={`absolute text-white text-shadow-lg transition-all duration-300 ${transitionClass}`}
+            style={{
+              position: 'absolute',
+              [slideData.textPosition === 'top-left' ? 'top' : slideData.textPosition === 'bottom-left' ? 'bottom' : slideData.textPosition === 'top-center' ? 'top' : slideData.textPosition === 'bottom-center' ? 'bottom' : slideData.textPosition === 'top-right' ? 'top' : slideData.textPosition === 'bottom-right' ? 'bottom' : 'top']: '20px',
+              [slideData.textPosition === 'top-left' ? 'left' : slideData.textPosition === 'bottom-left' ? 'left' : slideData.textPosition === 'top-center' ? 'left' : slideData.textPosition === 'bottom-center' ? 'left' : slideData.textPosition === 'top-right' ? 'right' : slideData.textPosition === 'bottom-right' ? 'right' : 'left']: slideData.textPosition.includes('center') ? '50%' : '20px',
+              transform: slideData.textPosition.includes('center') ? 'translateX(-50%)' : undefined,
+              color: slideData.textColor,
+              fontSize: `${slideData.textSize}px`,
+              textShadow: '0 2px 10px rgba(0,0,0,0.5)',
+              padding: '10px 20px',
+              backgroundColor: 'rgba(0,0,0,0.3)',
+              borderRadius: '8px',
+            }}
+          >
+            {slideData.overlayText}
+          </div>
+        )}
       </div>
 
-      {/* Text overlay */}
-      {slide.overlayText && (
-        <div
-          className={`absolute ${positionClasses[slide.textPosition]} max-w-[80%] text-center`}
-          style={{
-            color: slide.textColor || '#ffffff',
-            fontSize: `${slide.textSize || 24}px`,
-            textShadow: '0 2px 8px rgba(0,0,0,0.7), 0 1px 3px rgba(0,0,0,0.5)',
-          }}
-        >
-          {slide.overlayText}
+      {/* Controls overlay */}
+      <div className={`absolute inset-0 bg-gradient-to-t from-black/80 via-transparent to-black/40 transition-opacity duration-300 ${showControls ? 'opacity-100' : 'opacity-0'}`}>
+        {/* Top bar */}
+        <div className="absolute top-0 left-0 right-0 p-4 flex justify-between items-center">
+          <div className="text-white/80 font-medium">
+            {currentSlideshow.name}
+          </div>
+          <div className="flex items-center gap-2 text-white/80 text-sm">
+            {currentIndex + 1} / {images.length}
+          </div>
         </div>
-      )}
 
-      {/* Timer bar */}
-      <div className="absolute top-0 left-0 right-0 h-1 bg-white/10">
-        <div
-          className="h-full bg-white/60 transition-all duration-100 ease-linear"
-          style={{ width: `${slideProgress}%` }}
-        />
+        {/* Bottom controls */}
+        <div className="absolute bottom-0 left-0 right-0 p-6">
+          <div className="flex items-center justify-center gap-6">
+            <button onClick={goPrev} className="w-12 h-12 rounded-full bg-white/10 backdrop-blur-sm flex items-center justify-center text-white hover:bg-white/20 transition-colors">
+              <ChevronLeft size={24} />
+            </button>
+            <button onClick={togglePlay} className="w-16 h-16 rounded-full bg-[#E8845C] flex items-center justify-center text-white hover:bg-[#E8845C]/80 transition-colors">
+              {isPlaying ? (
+                <div className="flex gap-1.5">
+                  <div className="w-2 h-8 bg-white rounded" />
+                  <div className="w-2 h-8 bg-white rounded" />
+                </div>
+              ) : (
+                <div className="w-0 h-0 border-t-[10px] border-t-transparent border-l-[16px] border-l-white border-b-[10px] border-b-transparent ml-1" />
+              )}
+            </button>
+            <button onClick={goNext} className="w-12 h-12 rounded-full bg-white/10 backdrop-blur-sm flex items-center justify-center text-white hover:bg-white/20 transition-colors">
+              <ChevronRight size={24} />
+            </button>
+          </div>
+          
+          <div className="flex items-center justify-center gap-4 mt-4">
+            <button onClick={toggleMute} className="p-2 rounded-full bg-white/10 backdrop-blur-sm text-white/70 hover:text-white hover:bg-white/20 transition-colors">
+              {isMuted ? <VolumeX size={20} /> : <Volume2 size={20} />}
+            </button>
+            <button onClick={reset} className="p-2 rounded-full bg-white/10 backdrop-blur-sm text-white/70 hover:text-white hover:bg-white/20 transition-colors">
+              <RotateCcw size={20} />
+            </button>
+          </div>
+        </div>
+
+        {/* Side navigation hints */}
+        <button onClick={goPrev} className="absolute left-4 top-1/2 -translate-y-1/2 w-16 h-16 flex items-center justify-center text-white/50 hover:text-white hover:bg-white/10 rounded-full transition-colors">
+          <ChevronLeft size={32} />
+        </button>
+        <button onClick={goNext} className="absolute right-4 top-1/2 -translate-y-1/2 w-16 h-16 flex items-center justify-center text-white/50 hover:text-white hover:bg-white/10 rounded-full transition-colors">
+          <ChevronRight size={32} />
+        </button>
       </div>
 
-      {/* Controls */}
-      <div
-        className={`absolute inset-x-0 bottom-0 transition-opacity duration-300 ${
-          showControls ? 'opacity-100' : 'opacity-0 pointer-events-none'
-        }`}
-      >
-        <div className="flex items-center justify-center gap-4 pb-8 pt-16 bg-gradient-to-t from-black/80 to-transparent">
-          <button
-            onClick={goPrev}
-            className="p-2 rounded-full bg-white/10 backdrop-blur-md hover:bg-white/20 text-white transition-colors"
-          >
-            <ChevronLeft size={28} />
-          </button>
-          <button
-            onClick={() => setIsPlaying((p) => !p)}
-            className="p-3 rounded-full bg-white/10 backdrop-blur-md hover:bg-white/20 text-white transition-colors"
-          >
-            {isPlaying ? <Pause size={28} /> : <Play size={28} />}
-          </button>
-          <button
-            onClick={goNext}
-            className="p-2 rounded-full bg-white/10 backdrop-blur-md hover:bg-white/20 text-white transition-colors"
-          >
-            <ChevronRight size={28} />
-          </button>
-        </div>
-        <div className="absolute bottom-8 left-8 text-white/60 text-sm backdrop-blur-sm bg-white/5 rounded px-2 py-1">
-          {currentIndex + 1} / {images.length}
-        </div>
+      {/* Exit hint */}
+      <div className={`absolute top-4 right-4 text-white/30 text-sm transition-opacity duration-300 ${showControls ? 'opacity-100' : 'opacity-0'}`}>
+        按 ESC 退出
       </div>
-
-      {/* Exit button */}
-      <button
-        onClick={exit}
-        className={`absolute top-6 right-6 p-2 rounded-full bg-white/10 backdrop-blur-md hover:bg-white/20 text-white transition-all duration-300 ${
-          showControls ? 'opacity-100' : 'opacity-0 pointer-events-none'
-        }`}
-      >
-        <X size={24} />
-      </button>
     </div>
   );
 }

@@ -1,0 +1,51 @@
+# Dependencies
+node_modules/
+**/node_modules/
+
+# Build output
+dist/
+**/dist/
+build/
+
+# Data & uploads (persisted via volume, not baked into image)
+data/
+**/data/
+uploads/
+**/uploads/
+*.sqlite
+*.sqlite-journal
+*.sqlite-wal
+*.sqlite-shm
+
+# Environment
+.env
+.env.*
+!**/.env.example
+**/.env
+**/.env.*
+
+# Logs
+*.log
+npm-debug.log*
+
+# Editor / OS / VCS
+.vscode/
+.idea/
+.trae/
+.DS_Store
+Thumbs.db
+.git/
+.gitignore
+.cache/
+
+# Tests / coverage
+coverage/
+
+# Docker meta (avoid recursion)
+Dockerfile
+.dockerignore
+docker-compose.yml
+docker-compose.*.yml
+
+# CI
+.github/

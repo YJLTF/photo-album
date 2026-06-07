@@ -5,6 +5,7 @@ import { cn } from "@/lib/utils";
 interface UploadZoneProps {
   onUpload: (files: FileList) => void;
   albumId?: string;
+  compact?: boolean;
 }
 
 export default function UploadZone({ onUpload, albumId }: UploadZoneProps) {
@@ -87,7 +88,7 @@ export default function UploadZone({ onUpload, albumId }: UploadZoneProps) {
           <p className="text-[#F5F0EB]/40 text-xs mt-1">支持 JPG、PNG、GIF 等格式</p>
         </div>
         {albumId && (
-          <span className="absolute top-3 right-3 text-xs text-[#E8845C]/60 bg-[#E8845C]/10 px-2 py-0.5 rounded-full">
+          <span className="absolute top-3 left-3 text-xs text-[#E8845C]/60 bg-[#E8845C]/10 px-2 py-0.5 rounded-full">
             相册 ID: {albumId}
           </span>
         )}

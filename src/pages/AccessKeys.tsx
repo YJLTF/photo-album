@@ -1,0 +1,422 @@
+import { useState, useEffect } from "react";
+import { Plus, Key, Trash2, Edit2, Copy, Check, X } from "lucide-react";
+import { accessKeyApi, type AccessKey, type PermissionLevel } from "@/lib/api";
+import Modal from "@/components/Modal";
+
+const permissionLabels: Record<PermissionLevel, string> = {
+  viewer: "浏览者",
+  editor: "编辑者",
+  admin: "管理员",
+};
+
+const permissionColors: Record<PermissionLevel, string> = {
+  viewer: "bg-blue-500/20 text-blue-400",
+  editor: "bg-green-500/20 text-green-400",
+  admin: "bg-orange-500/20 text-orange-400",
+};
+
+export default function AccessKeys() {
+  const [keys, setKeys] = useState<AccessKey[]>([]);
+  const [showCreateModal, setShowCreateModal] = useState(false);
+  const [showEditModal, setShowEditModal] = useState(false);
+  const [editingKey, setEditingKey] = useState<AccessKey | null>(null);
+  const [newKey, setNewKey] = useState("");
+  const [newPermission, setNewPermission] = useState<PermissionLevel>("viewer");
+  const [newDescription, setNewDescription] = useState("");
+  const [editNewKey, setEditNewKey] = useState("");
+  const [copiedId, setCopiedId] = useState<string | null>(null);
+  const [createError, setCreateError] = useState("");
+  const [editError, setEditError] = useState("");
+
+  const loadKeys = async () => {
+    try {
+      const data = await accessKeyApi.getAll();
+      setKeys(data);
+    } catch (error) {
+      console.error("Failed to load access keys:", error);
+    }
+  };
+
+  useEffect(() => {
+    loadKeys();
+  }, []);
+
+  const handleCreate = async () => {
+    if (!newKey || newKey.length < 6) return;
+    setCreateError("");
+    try {
+      await accessKeyApi.create(newKey, newPermission, newDescription);
+      setShowCreateModal(false);
+      setNewKey("");
+      setNewPermission("viewer");
+      setNewDescription("");
+      loadKeys();
+    } catch (error: any) {
+      console.error("Failed to create access key:", error);
+      setCreateError(error?.response?.data?.message || error?.message || "创建失败");
+    }
+  };
+
+  const handleEdit = async () => {
+    if (!editingKey || !editNewKey || editNewKey.length < 6) return;
+    setEditError("");
+    try {
+      await accessKeyApi.updateKey(editingKey.id, editNewKey);
+      setShowEditModal(false);
+      setEditingKey(null);
+      setEditNewKey("");
+      
+      // 如果修改的是当前使用的密钥，需要重新登录
+      const currentToken = localStorage.getItem("token");
+      if (currentToken) {
+        try {
+          const payload = JSON.parse(atob(currentToken.split(".")[1]));
+          if (payload.key === editingKey.key) {
+            localStorage.removeItem("token");
+            localStorage.removeItem("permission");
+            window.location.href = "/login";
+            return;
+          }
+        } catch (e) {
+          // token 解析失败，继续刷新列表
+        }
+      }
+      
+      loadKeys();
+    } catch (error: any) {
+      console.error("Failed to update access key:", error);
+      setEditError(error?.response?.data?.message || error?.message || "修改失败");
+    }
+  };
+
+  const handleDelete = async (id: string) => {
+    if (!confirm("确定要删除这个密钥吗？")) return;
+    try {
+      const keyToDelete = keys.find(k => k.id === id);
+      await accessKeyApi.delete(id);
+      
+      // 如果删除的是当前使用的密钥，需要重新登录
+      const currentToken = localStorage.getItem("token");
+      if (currentToken && keyToDelete) {
+        try {
+          const payload = JSON.parse(atob(currentToken.split(".")[1]));
+          if (payload.key === keyToDelete.key) {
+            localStorage.removeItem("token");
+            localStorage.removeItem("permission");
+            window.location.href = "/login";
+            return;
+          }
+        } catch (e) {
+          // token 解析失败，继续刷新列表
+        }
+      }
+      
+      loadKeys();
+    } catch (error) {
+      console.error("Failed to delete access key:", error);
+    }
+  };
+
+  const handleToggleActive = async (key: AccessKey) => {
+    const action = key.active ? "禁用" : "启用";
+    if (!confirm(`确定要${action}此密钥吗？`)) return;
+    
+    try {
+      await accessKeyApi.update(key.id, { active: !key.active });
+      
+      // 如果禁用当前使用的密钥，需要重新登录
+      if (key.active) {
+        const currentToken = localStorage.getItem("token");
+        if (currentToken) {
+          try {
+            const payload = JSON.parse(atob(currentToken.split(".")[1]));
+            if (payload.key === key.key) {
+              localStorage.removeItem("token");
+              localStorage.removeItem("permission");
+              window.location.href = "/login";
+              return;
+            }
+          } catch (e) {
+            // token 解析失败，继续刷新列表
+          }
+        }
+      }
+      
+      loadKeys();
+    } catch (error) {
+      console.error("Failed to toggle access key:", error);
+    }
+  };
+
+  const copyToClipboard = async (text: string, id: string) => {
+    try {
+      await navigator.clipboard.writeText(text);
+      setCopiedId(id);
+      setTimeout(() => setCopiedId(null), 2000);
+    } catch (error) {
+      console.error("Failed to copy:", error);
+    }
+  };
+
+  const openEditModal = (key: AccessKey) => {
+    setEditingKey(key);
+    setEditNewKey(key.key);
+    setShowEditModal(true);
+  };
+
+  return (
+    <div className="p-8">
+      {/* Header */}
+      <div className="flex items-center justify-between mb-8">
+        <div>
+          <h1 className="text-2xl font-bold text-[#F5F0EB] mb-1" style={{ fontFamily: "'Playfair Display', serif" }}>
+            访问密钥管理
+          </h1>
+          <p className="text-[#F5F0EB]/50 text-sm">管理用户的访问密钥和权限</p>
+        </div>
+        <button
+          onClick={() => setShowCreateModal(true)}
+          className="flex items-center gap-2 px-4 py-2 bg-[#E8845C] hover:bg-[#E8845C]/80 rounded-lg font-medium transition-colors"
+        >
+          <Plus size={18} />
+          <span>创建密钥</span>
+        </button>
+      </div>
+
+      {/* Keys list */}
+      <div className="space-y-3">
+        {keys.length === 0 ? (
+          <div className="text-center py-12 text-[#F5F0EB]/40">
+            <Key size={48} className="mx-auto mb-4 opacity-30" />
+            <p>暂无访问密钥</p>
+          </div>
+        ) : (
+          keys.map((key) => (
+            <div
+              key={key.id}
+              className={`flex items-center justify-between p-4 rounded-xl border transition-all ${
+                key.active 
+                  ? "bg-[#16213E]/50 border-white/10" 
+                  : "bg-[#16213E]/20 border-white/5 opacity-60"
+              }`}
+            >
+              <div className="flex-1">
+                <div className="flex items-center gap-3 mb-2">
+                  <code className="text-[#E8845C] font-mono font-medium">{key.key}</code>
+                  <span className={`px-2 py-0.5 rounded text-xs font-medium ${permissionColors[key.permission]}`}>
+                    {permissionLabels[key.permission]}
+                  </span>
+                  {!key.active && (
+                    <span className="px-2 py-0.5 rounded text-xs font-medium bg-gray-500/20 text-gray-400">
+                      已禁用
+                    </span>
+                  )}
+                </div>
+                {key.description && (
+                  <p className="text-[#F5F0EB]/40 text-sm">{key.description}</p>
+                )}
+                <p className="text-[#F5F0EB]/30 text-xs mt-1">
+                  创建于 {new Date(key.createdAt).toLocaleDateString()}
+                </p>
+              </div>
+
+              <div className="flex items-center gap-2">
+                <button
+                  onClick={() => copyToClipboard(key.key, key.id)}
+                  className="p-2 rounded-lg hover:bg-white/10 text-[#F5F0EB]/60 hover:text-[#F5F0EB] transition-colors"
+                  title="复制密钥"
+                >
+                  {copiedId === key.id ? <Check size={18} /> : <Copy size={18} />}
+                </button>
+                <button
+                  onClick={() => openEditModal(key)}
+                  className="p-2 rounded-lg hover:bg-white/10 text-[#F5F0EB]/60 hover:text-[#F5F0EB] transition-colors"
+                  title="修改密钥"
+                >
+                  <Edit2 size={18} />
+                </button>
+                {key.permission === "admin" ? (
+                  <span className="px-3 py-1.5 rounded-lg text-xs font-medium bg-purple-500/20 text-purple-400 cursor-not-allowed" title="管理员密钥不能被禁用">
+                    管理员
+                  </span>
+                ) : (
+                  <button
+                    onClick={() => handleToggleActive(key)}
+                    className={`px-3 py-1.5 rounded-lg text-xs font-medium transition-colors ${
+                      key.active
+                        ? "bg-yellow-500/20 text-yellow-400 hover:bg-yellow-500/30"
+                        : "bg-green-500/20 text-green-400 hover:bg-green-500/30"
+                    }`}
+                  >
+                    {key.active ? "禁用" : "启用"}
+                  </button>
+                )}
+                <button
+                  onClick={() => handleDelete(key.id)}
+                  className={`p-2 rounded-lg transition-colors ${
+                    key.permission === "admin"
+                      ? "text-[#F5F0EB]/20 cursor-not-allowed"
+                      : "hover:bg-red-500/20 text-[#F5F0EB]/60 hover:text-red-400"
+                  }`}
+                  title={key.permission === "admin" ? "管理员密钥不能删除" : "删除密钥"}
+                  disabled={key.permission === "admin"}
+                >
+                  <Trash2 size={18} />
+                </button>
+              </div>
+            </div>
+          ))
+        )}
+      </div>
+
+      {/* Create Modal */}
+      {showCreateModal && (
+        <Modal isOpen={showCreateModal} onClose={() => setShowCreateModal(false)}>
+          <div className="bg-[#16213E] rounded-xl p-6 w-[420px]">
+            <div className="flex items-center justify-between mb-6">
+              <h2 className="text-xl font-bold text-[#F5F0EB]" style={{ fontFamily: "'Playfair Display', serif" }}>
+                创建访问密钥
+              </h2>
+              <button
+                onClick={() => setShowCreateModal(false)}
+                className="p-1 rounded hover:bg-white/10 text-[#F5F0EB]/60"
+              >
+                <X size={20} />
+              </button>
+            </div>
+
+            <div className="space-y-4">
+              <div>
+                <label className="block text-sm font-medium text-[#F5F0EB]/70 mb-2">
+                  密钥 <span className="text-red-400">*</span>
+                </label>
+                <input
+                  type="text"
+                  value={newKey}
+                  onChange={(e) => {
+                    setNewKey(e.target.value);
+                    setCreateError("");
+                  }}
+                  placeholder="请输入密钥（至少6个字符）"
+                  className="w-full px-4 py-2.5 bg-[#1A1A2E] border border-white/10 rounded-lg text-[#F5F0EB] placeholder:text-[#F5F0EB]/30 focus:outline-none focus:border-[#E8845C]/50"
+                />
+                {createError && (
+                  <p className="mt-1.5 text-red-400 text-sm">{createError}</p>
+                )}
+              </div>
+
+              <div>
+                <label className="block text-sm font-medium text-[#F5F0EB]/70 mb-2">
+                  权限级别 <span className="text-red-400">*</span>
+                </label>
+                <select
+                  value={newPermission}
+                  onChange={(e) => setNewPermission(e.target.value as PermissionLevel)}
+                  className="w-full px-4 py-2.5 bg-[#1A1A2E] border border-white/10 rounded-lg text-[#F5F0EB] focus:outline-none focus:border-[#E8845C]/50"
+                >
+                  <option value="viewer">浏览者 - 仅能查看</option>
+                  <option value="editor">编辑者 - 可添加和管理内容</option>
+                  <option value="admin">管理员 - 完整权限</option>
+                </select>
+              </div>
+
+              <div>
+                <label className="block text-sm font-medium text-[#F5F0EB]/70 mb-2">
+                  描述（可选）
+                </label>
+                <input
+                  type="text"
+                  value={newDescription}
+                  onChange={(e) => setNewDescription(e.target.value)}
+                  placeholder="例如：测试账号"
+                  className="w-full px-4 py-2.5 bg-[#1A1A2E] border border-white/10 rounded-lg text-[#F5F0EB] placeholder:text-[#F5F0EB]/30 focus:outline-none focus:border-[#E8845C]/50"
+                />
+              </div>
+            </div>
+
+            <div className="flex gap-3 mt-6">
+              <button
+                onClick={() => setShowCreateModal(false)}
+                className="flex-1 px-4 py-2.5 border border-white/20 rounded-lg text-[#F5F0EB]/70 hover:bg-white/5 transition-colors"
+              >
+                取消
+              </button>
+              <button
+                onClick={handleCreate}
+                disabled={!newKey || newKey.length < 6}
+                className="flex-1 px-4 py-2.5 bg-[#E8845C] rounded-lg font-medium hover:bg-[#E8845C]/80 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+              >
+                创建
+              </button>
+            </div>
+          </div>
+        </Modal>
+      )}
+
+      {/* Edit Modal */}
+      {showEditModal && editingKey && (
+        <Modal isOpen={showEditModal} onClose={() => setShowEditModal(false)}>
+          <div className="bg-[#16213E] rounded-xl p-6 w-[420px]">
+            <div className="flex items-center justify-between mb-6">
+              <h2 className="text-xl font-bold text-[#F5F0EB]" style={{ fontFamily: "'Playfair Display', serif" }}>
+                修改密钥
+              </h2>
+              <button
+                onClick={() => setShowEditModal(false)}
+                className="p-1 rounded hover:bg-white/10 text-[#F5F0EB]/60"
+              >
+                <X size={20} />
+              </button>
+            </div>
+
+            <div className="space-y-4">
+              <div>
+                <label className="block text-sm font-medium text-[#F5F0EB]/70 mb-2">
+                  当前密钥
+                </label>
+                <div className="px-4 py-2.5 bg-[#1A1A2E] border border-white/10 rounded-lg text-[#F5F0EB]/50 font-mono">
+                  {editingKey.key}
+                </div>
+              </div>
+
+              <div>
+                <label className="block text-sm font-medium text-[#F5F0EB]/70 mb-2">
+                  新密钥 <span className="text-red-400">*</span>
+                </label>
+                <input
+                  type="text"
+                  value={editNewKey}
+                  onChange={(e) => {
+                    setEditNewKey(e.target.value);
+                    setEditError("");
+                  }}
+                  placeholder="请输入新密钥（至少6个字符）"
+                  className="w-full px-4 py-2.5 bg-[#1A1A2E] border border-white/10 rounded-lg text-[#F5F0EB] placeholder:text-[#F5F0EB]/30 focus:outline-none focus:border-[#E8845C]/50"
+                />
+                {editError && (
+                  <p className="mt-1.5 text-red-400 text-sm">{editError}</p>
+                )}
+              </div>
+            </div>
+
+            <div className="flex gap-3 mt-6">
+              <button
+                onClick={() => setShowEditModal(false)}
+                className="flex-1 px-4 py-2.5 border border-white/20 rounded-lg text-[#F5F0EB]/70 hover:bg-white/5 transition-colors"
+              >
+                取消
+              </button>
+              <button
+                onClick={handleEdit}
+                disabled={!editNewKey || editNewKey.length < 6}
+                className="flex-1 px-4 py-2.5 bg-[#E8845C] rounded-lg font-medium hover:bg-[#E8845C]/80 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+              >
+                保存
+              </button>
+            </div>
+          </div>
+        </Modal>
+      )}
+    </div>
+  );
+}

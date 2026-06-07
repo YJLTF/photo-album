@@ -1,11 +1,13 @@
 import { useState } from "react";
-import { Images, Tags, Play, ChevronLeft, ChevronRight } from "lucide-react";
+import { Images, Tags, Play, ChevronLeft, ChevronRight, LogOut, Key } from "lucide-react";
 import { cn } from "@/lib/utils";
+import type { PermissionLevel } from "@/lib/api";
 
 interface NavItem {
   key: string;
   label: string;
   icon: React.ReactNode;
+  requiredPermission?: PermissionLevel;
 }
 
 const navItems: NavItem[] = [
@@ -14,13 +16,37 @@ const navItems: NavItem[] = [
   { key: "slideshows", label: "轮播", icon: <Play size={20} /> },
 ];
 
+const adminNavItems: NavItem[] = [
+  { key: "access-keys", label: "访问密钥", icon: <Key size={20} />, requiredPermission: "admin" },
+];
+
+const permissionLabels: Record<PermissionLevel, string> = {
+  viewer: "浏览者",
+  editor: "编辑者",
+  admin: "管理员",
+};
+
+const permissionColors: Record<PermissionLevel, string> = {
+  viewer: "text-blue-400",
+  editor: "text-green-400",
+  admin: "text-orange-400",
+};
+
 interface SidebarProps {
   activeKey?: string;
   onNavigate?: (key: string) => void;
+  permission: PermissionLevel;
+  onLogout: () => void;
 }
 
-export default function Sidebar({ activeKey = "albums", onNavigate }: SidebarProps) {
+export default function Sidebar({ activeKey = "albums", onNavigate, permission, onLogout }: SidebarProps) {
   const [collapsed, setCollapsed] = useState(false);
+
+  const canAccess = (item: NavItem) => {
+    if (!item.requiredPermission) return true;
+    const permOrder = { viewer: 1, editor: 2, admin: 3 };
+    return permOrder[permission] >= permOrder[item.requiredPermission];
+  };
 
   return (
     <aside
@@ -44,7 +70,7 @@ export default function Sidebar({ activeKey = "albums", onNavigate }: SidebarPro
 
       {/* Navigation */}
       <nav className="flex-1 flex flex-col gap-1 px-2 mt-2">
-        {navItems.map((item) => (
+        {navItems.filter(canAccess).map((item) => (
           <button
             key={item.key}
             onClick={() => onNavigate?.(item.key)}
@@ -59,7 +85,62 @@ export default function Sidebar({ activeKey = "albums", onNavigate }: SidebarPro
             {!collapsed && <span style={{ fontFamily: "'DM Sans', sans-serif" }}>{item.label}</span>}
           </button>
         ))}
+        
+        {/* Admin section */}
+        {adminNavItems.filter(canAccess).length > 0 && (
+          <>
+            {!collapsed && (
+              <div className="px-3 py-2 mt-2">
+                <span className="text-xs text-[#F5F0EB]/30 uppercase tracking-wider">管理</span>
+              </div>
+            )}
+            {adminNavItems.filter(canAccess).map((item) => (
+              <button
+                key={item.key}
+                onClick={() => onNavigate?.(item.key)}
+                className={cn(
+                  "flex items-center gap-3 px-3 py-2.5 rounded-full text-sm font-medium transition-all duration-200",
+                  activeKey === item.key
+                    ? "bg-[#E8845C]/20 text-[#E8845C] shadow-[0_0_12px_rgba(232,132,92,0.25)]"
+                    : "text-[#F5F0EB]/60 hover:bg-white/5 hover:text-[#F5F0EB]"
+                )}
+              >
+                <span className="shrink-0">{item.icon}</span>
+                {!collapsed && <span style={{ fontFamily: "'DM Sans', sans-serif" }}>{item.label}</span>}
+              </button>
+            ))}
+          </>
+        )}
       </nav>
+
+      {/* User info and logout */}
+      <div className="px-2 pb-4">
+        <div className={`${collapsed ? "flex justify-center mb-2" : "px-3 py-2 mb-2"}`}>
+          {!collapsed && (
+            <div className="text-xs">
+              <p className="text-[#F5F0EB]/40">权限</p>
+              <p className={cn("font-medium", permissionColors[permission])}>
+                {permissionLabels[permission]}
+              </p>
+            </div>
+          )}
+          {collapsed && (
+            <div className={cn("w-8 h-8 rounded-full flex items-center justify-center text-xs font-medium", permissionColors[permission], "bg-white/10")}>
+              {permissionLabels[permission][0]}
+            </div>
+          )}
+        </div>
+        <button
+          onClick={onLogout}
+          className={cn(
+            "w-full flex items-center gap-3 px-3 py-2 rounded-full text-sm font-medium transition-all duration-200",
+            "text-[#F5F0EB]/60 hover:bg-red-500/20 hover:text-red-400"
+          )}
+        >
+          <span className="shrink-0"><LogOut size={16} /></span>
+          {!collapsed && <span style={{ fontFamily: "'DM Sans', sans-serif" }}>登出</span>}
+        </button>
+      </div>
 
       {/* Collapse toggle */}
       <button

@@ -1,199 +1,195 @@
-import { useState, useEffect, useCallback } from "react";
-import { useParams, useNavigate } from "react-router-dom";
-import { ChevronLeft, ChevronRight, X, Info, ZoomIn, ZoomOut, Plus } from "lucide-react";
-import { useStore, objectUrls } from "@/lib/store";
-import { db } from "@/lib/db";
-import type { Tag } from "@/lib/types";
-import TagPill from "@/components/TagPill";
-import Modal from "@/components/Modal";
-
-function formatSize(bytes: number): string {
-  if (bytes < 1024) return `${bytes} B`;
-  if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)} KB`;
-  return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
-}
+import { useState, useEffect, useCallback, useRef } from 'react';
+import { useParams, useNavigate } from 'react-router-dom';
+import { ArrowLeft, ArrowRight, X, Download, ZoomIn, ZoomOut, RotateCw } from 'lucide-react';
+import { imageApi, albumApi, type ImageItem } from '@/lib/api';
 
 export default function ImagePreview() {
-  const { imageId } = useParams<{ imageId: string }>();
+  const { imageId } = useParams();
   const navigate = useNavigate();
+  const imgRef = useRef<HTMLImageElement>(null);
 
-  const images = useStore((s) => s.images);
-  const deleteImage = useStore((s) => s.deleteImage);
-  const tags = useStore((s) => s.tags);
-  const fetchTags = useStore((s) => s.fetchTags);
-  const addTagToImage = useStore((s) => s.addTagToImage);
-  const removeTagFromImage = useStore((s) => s.removeTagFromImage);
+  const [image, setImage] = useState<ImageItem | null>(null);
+  const [imageUrl, setImageUrl] = useState('');
+  const [albumImages, setAlbumImages] = useState<ImageItem[]>([]);
+  const [currentIndex, setCurrentIndex] = useState(0);
+  const [scale, setScale] = useState(1);
+  const [rotation, setRotation] = useState(0);
+  const [showControls, setShowControls] = useState(false);
 
-  const [zoomed, setZoomed] = useState(false);
-  const [sidebarOpen, setSidebarOpen] = useState(false);
-  const [imageTags, setImageTags] = useState<Tag[]>([]);
-  const [tagModalOpen, setTagModalOpen] = useState(false);
+  const hideTimerRef = useRef<number | null>(null);
 
-  const image = images.find((i) => i.id === imageId);
-  const albumImages = images.filter((i) => i.albumId === image?.albumId);
-  const currentIndex = albumImages.findIndex((i) => i.id === imageId);
-  const prevImage = currentIndex > 0 ? albumImages[currentIndex - 1] : null;
-  const nextImage = currentIndex < albumImages.length - 1 ? albumImages[currentIndex + 1] : null;
+  const resetHideTimer = useCallback(() => {
+    if (hideTimerRef.current) clearTimeout(hideTimerRef.current);
+    setShowControls(true);
+    hideTimerRef.current = window.setTimeout(() => setShowControls(false), 3000);
+  }, []);
 
-  const loadImageTags = useCallback(async () => {
-    if (!imageId) return;
-    const links = await db.imageTags.where("imageId").equals(imageId).toArray();
-    const tagIds = links.map((l) => l.tagId);
-    if (tagIds.length === 0) { setImageTags([]); return; }
-    const result = await db.tags.where("id").anyOf(tagIds).toArray();
-    setImageTags(result);
+  useEffect(() => {
+    resetHideTimer();
+    document.addEventListener('mousemove', resetHideTimer);
+    return () => {
+      document.removeEventListener('mousemove', resetHideTimer);
+      if (hideTimerRef.current) clearTimeout(hideTimerRef.current);
+    };
+  }, [resetHideTimer]);
+
+  useEffect(() => {
+    const fetchData = async () => {
+      if (!imageId) return;
+
+      const [imgData, albums] = await Promise.all([
+        imageApi.getById(imageId),
+        albumApi.getAll(),
+      ]);
+
+      const url = URL.createObjectURL(imgData);
+      setImageUrl(url);
+
+      let currentImg: ImageItem | null = null;
+      let allImages: ImageItem[] = [];
+
+      for (const album of albums) {
+        const imgs = await imageApi.getByAlbum(album.id);
+        allImages = [...allImages, ...imgs];
+        if (imgs.some(i => i.id === imageId)) {
+          currentImg = imgs.find(i => i.id === imageId) || null;
+        }
+      }
+
+      if (currentImg) {
+        setImage(currentImg);
+        setAlbumImages(allImages.sort((a, b) => new Date(a.createdAt).getTime() - new Date(b.createdAt).getTime()));
+        setCurrentIndex(allImages.findIndex(i => i.id === imageId));
+      }
+
+      return () => {
+        URL.revokeObjectURL(url);
+      };
+    };
+
+    fetchData();
   }, [imageId]);
 
-  useEffect(() => { fetchTags(); }, [fetchTags]);
-  useEffect(() => { loadImageTags(); }, [loadImageTags]);
+  const goNext = async () => {
+    const nextIndex = (currentIndex + 1) % albumImages.length;
+    setCurrentIndex(nextIndex);
+    const nextImg = albumImages[nextIndex];
+    const blob = await imageApi.getById(nextImg.id);
+    setImageUrl(URL.createObjectURL(blob));
+    setImage(nextImg);
+  };
 
-  const go = useCallback((id: string) => {
-    setZoomed(false);
-    navigate(`/preview/${id}`);
-  }, [navigate]);
+  const goPrev = async () => {
+    const prevIndex = (currentIndex - 1 + albumImages.length) % albumImages.length;
+    setCurrentIndex(prevIndex);
+    const prevImg = albumImages[prevIndex];
+    const blob = await imageApi.getById(prevImg.id);
+    setImageUrl(URL.createObjectURL(blob));
+    setImage(prevImg);
+  };
 
-  const close = useCallback(() => navigate(-1), [navigate]);
+  const zoomIn = () => setScale(prev => Math.min(prev + 0.25, 3));
+  const zoomOut = () => setScale(prev => Math.max(prev - 0.25, 0.5));
+  const resetZoom = () => { setScale(1); setRotation(0); };
+  const rotate = () => setRotation(prev => (prev + 90) % 360);
+
+  const handleDownload = () => {
+    const link = document.createElement('a');
+    link.href = imageUrl;
+    link.download = image?.name || 'image.jpg';
+    link.click();
+  };
 
   useEffect(() => {
     const handler = (e: KeyboardEvent) => {
-      if (e.key === "Escape") close();
-      if (e.key === "ArrowLeft" && prevImage) go(prevImage.id);
-      if (e.key === "ArrowRight" && nextImage) go(nextImage.id);
+      if (e.key === 'ArrowRight') { e.preventDefault(); goNext(); }
+      else if (e.key === 'ArrowLeft') { e.preventDefault(); goPrev(); }
+      else if (e.key === 'Escape') navigate(-1);
+      else if (e.key === '+') { e.preventDefault(); zoomIn(); }
+      else if (e.key === '-') { e.preventDefault(); zoomOut(); }
+      else if (e.key === '0') { e.preventDefault(); resetZoom(); }
     };
-    window.addEventListener("keydown", handler);
-    return () => window.removeEventListener("keydown", handler);
-  }, [close, go, prevImage, nextImage]);
+    window.addEventListener('keydown', handler);
+    return () => window.removeEventListener('keydown', handler);
+  }, [currentIndex, albumImages, navigate]);
 
-  const handleAddTag = async (tagId: string) => {
-    if (!imageId) return;
-    await addTagToImage(imageId, tagId);
-    await loadImageTags();
-  };
-
-  const handleRemoveTag = async (tagId: string) => {
-    if (!imageId) return;
-    await removeTagFromImage(imageId, tagId);
-    await loadImageTags();
-  };
-
-  const availableTags = tags.filter((t) => !imageTags.some((it) => it.id === t.id));
-
-  if (!image) return null;
-  const url = objectUrls.get(image.id);
+  if (!image || !imageUrl) {
+    return (
+      <div className="fixed inset-0 bg-black flex items-center justify-center text-white/50">
+        Loading...
+      </div>
+    );
+  }
 
   return (
-    <div className="fixed inset-0 z-50 flex bg-[#0D0D1A]" onClick={() => zoomed && setZoomed(false)}>
-      {/* Image area */}
-      <div className="flex-1 flex items-center justify-center relative overflow-hidden">
-        {url && (
-          <img
-            src={url}
-            alt={image.name}
-            onClick={(e) => { e.stopPropagation(); setZoomed((z) => !z); }}
-            className={`max-w-full max-h-full object-contain transition-transform duration-300 cursor-zoom-in ${
-              zoomed ? "scale-[2] cursor-zoom-out" : ""
-            }`}
-          />
-        )}
-
-        {/* Bottom control bar */}
-        <div className="absolute bottom-0 inset-x-0 h-14 bg-black/50 backdrop-blur-md flex items-center justify-between px-4">
-          <div className="flex items-center gap-2">
-            <button
-              onClick={() => prevImage && go(prevImage.id)}
-              disabled={!prevImage}
-              className="p-2 rounded-full text-white/70 hover:text-white hover:bg-white/10 disabled:opacity-30 transition-colors"
-            >
-              <ChevronLeft size={20} />
-            </button>
-            <span className="text-sm text-white/70 font-medium min-w-[60px] text-center">
-              {currentIndex + 1} / {albumImages.length}
-            </span>
-            <button
-              onClick={() => nextImage && go(nextImage.id)}
-              disabled={!nextImage}
-              className="p-2 rounded-full text-white/70 hover:text-white hover:bg-white/10 disabled:opacity-30 transition-colors"
-            >
-              <ChevronRight size={20} />
-            </button>
-          </div>
-
-          <div className="flex items-center gap-2">
-            <button
-              onClick={() => setZoomed((z) => !z)}
-              className="p-2 rounded-full text-white/70 hover:text-white hover:bg-white/10 transition-colors"
-            >
-              {zoomed ? <ZoomOut size={18} /> : <ZoomIn size={18} />}
-            </button>
-            <button
-              onClick={() => setSidebarOpen((o) => !o)}
-              className={`p-2 rounded-full transition-colors ${sidebarOpen ? "text-[#E8845C] bg-[#E8845C]/10" : "text-white/70 hover:text-white hover:bg-white/10"}`}
-            >
-              <Info size={18} />
-            </button>
-            <button
-              onClick={close}
-              className="p-2 rounded-full text-white/70 hover:text-white hover:bg-white/10 transition-colors"
-            >
-              <X size={18} />
-            </button>
-          </div>
-        </div>
+    <div className="fixed inset-0 bg-black">
+      {/* Image */}
+      <div className="w-full h-full flex items-center justify-center overflow-hidden">
+        <img
+          ref={imgRef}
+          src={imageUrl}
+          alt={image.name}
+          className="max-w-full max-h-full object-contain transition-transform duration-200"
+          style={{
+            transform: `scale(${scale}) rotate(${rotation}deg)`,
+          }}
+        />
       </div>
 
-      {/* Right sidebar */}
-      <div
-        className={`w-72 bg-[#0D0D1A]/90 backdrop-blur-md border-l border-white/5 transition-all duration-300 overflow-y-auto ${
-          sidebarOpen ? "translate-x-0" : "translate-x-full w-0 border-l-0"
-        }`}
-      >
-        <div className="p-5 space-y-6">
-          {/* Image info */}
-          <div>
-            <h3 className="text-xs font-semibold text-white/40 uppercase tracking-wider mb-3">图片信息</h3>
-            <div className="space-y-2 text-sm">
-              <div className="flex justify-between"><span className="text-white/50">文件名</span><span className="text-white/90 truncate ml-2 max-w-[140px]" title={image.name}>{image.name}</span></div>
-              <div className="flex justify-between"><span className="text-white/50">大小</span><span className="text-white/90">{formatSize(image.fileSize)}</span></div>
-              <div className="flex justify-between"><span className="text-white/50">尺寸</span><span className="text-white/90">{image.width} × {image.height}</span></div>
-              <div className="flex justify-between"><span className="text-white/50">上传时间</span><span className="text-white/90">{new Date(image.createdAt).toLocaleDateString()}</span></div>
-            </div>
+      {/* Controls */}
+      <div className={`absolute inset-0 pointer-events-none transition-opacity duration-300 ${showControls ? 'opacity-100' : 'opacity-0'}`}>
+        {/* Top bar */}
+        <div className="pointer-events-auto absolute top-0 left-0 right-0 p-4 flex justify-between items-center">
+          <div className="text-white/80 text-sm max-w-xs truncate">
+            {image.name}
           </div>
+          <button
+            onClick={() => navigate(-1)}
+            className="p-2 rounded-lg bg-white/10 hover:bg-white/20 text-white transition-colors"
+          >
+            <X size={20} />
+          </button>
+        </div>
 
-          {/* Tags */}
-          <div>
-            <div className="flex items-center justify-between mb-3">
-              <h3 className="text-xs font-semibold text-white/40 uppercase tracking-wider">标签</h3>
-              {availableTags.length > 0 && (
-                <button
-                  onClick={() => setTagModalOpen(true)}
-                  className="p-1 rounded-full text-white/50 hover:text-[#E8845C] hover:bg-[#E8845C]/10 transition-colors"
-                >
-                  <Plus size={14} />
-                </button>
-              )}
-            </div>
-            <div className="flex flex-wrap gap-1.5">
-              {imageTags.map((tag) => (
-                <TagPill key={tag.id} tag={tag} onRemove={() => handleRemoveTag(tag.id)} />
-              ))}
-              {imageTags.length === 0 && <span className="text-xs text-white/30">暂无标签</span>}
-            </div>
+        {/* Bottom bar */}
+        <div className="pointer-events-auto absolute bottom-0 left-0 right-0 p-4">
+          <div className="flex items-center justify-center gap-4">
+            <button onClick={zoomOut} className="p-3 rounded-full bg-white/10 hover:bg-white/20 text-white transition-colors">
+              <ZoomOut size={20} />
+            </button>
+            <button onClick={resetZoom} className="px-4 py-3 rounded-full bg-white/10 hover:bg-white/20 text-white text-sm transition-colors">
+              {Math.round(scale * 100)}%
+            </button>
+            <button onClick={zoomIn} className="p-3 rounded-full bg-white/10 hover:bg-white/20 text-white transition-colors">
+              <ZoomIn size={20} />
+            </button>
+            <div className="w-px h-8 bg-white/20 mx-2" />
+            <button onClick={rotate} className="p-3 rounded-full bg-white/10 hover:bg-white/20 text-white transition-colors">
+              <RotateCw size={20} />
+            </button>
+            <button onClick={handleDownload} className="p-3 rounded-full bg-white/10 hover:bg-white/20 text-white transition-colors">
+              <Download size={20} />
+            </button>
+          </div>
+          <div className="text-center text-white/50 text-sm mt-3">
+            {currentIndex + 1} / {albumImages.length}
           </div>
         </div>
+
+        {/* Navigation */}
+        <button
+          onClick={goPrev}
+          className="pointer-events-auto absolute left-4 top-1/2 -translate-y-1/2 w-12 h-12 rounded-full bg-white/10 hover:bg-white/20 text-white flex items-center justify-center transition-colors"
+        >
+          <ArrowLeft size={24} />
+        </button>
+        <button
+          onClick={goNext}
+          className="pointer-events-auto absolute right-4 top-1/2 -translate-y-1/2 w-12 h-12 rounded-full bg-white/10 hover:bg-white/20 text-white flex items-center justify-center transition-colors"
+        >
+          <ArrowRight size={24} />
+        </button>
       </div>
-
-      {/* Add tag modal */}
-      <Modal isOpen={tagModalOpen} onClose={() => setTagModalOpen(false)} title="添加标签">
-        <div className="flex flex-wrap gap-2">
-          {availableTags.map((tag) => (
-            <TagPill
-              key={tag.id}
-              tag={tag}
-              onToggle={async () => { await handleAddTag(tag.id); setTagModalOpen(false); }}
-            />
-          ))}
-        </div>
-      </Modal>
     </div>
   );
 }

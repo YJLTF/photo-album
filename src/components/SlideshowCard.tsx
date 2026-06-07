@@ -1,7 +1,7 @@
 import { Play, Pencil, Trash2 } from "lucide-react";
 
 interface SlideshowCardProps {
-  slideshow: { id: string; name: string; imageCount: number; transitionEffect: string };
+  slideshow: { id: string; name: string; imageCount: number; transitionEffect?: string };
   onPlay: () => void;
   onEdit: () => void;
   onDelete: () => void;

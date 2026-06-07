@@ -1,218 +1,406 @@
-import { useState, useEffect, useCallback } from 'react';
-import { useParams, useNavigate } from 'react-router-dom';
-import { ArrowLeft, Pencil, Trash2, FolderInput, Tag as TagIcon, ImageOff } from 'lucide-react';
-import { useStore, objectUrls } from '@/lib/store';
-import { db } from '@/lib/db';
-import type { ImageTag } from '@/lib/types';
-import ImageCard from '@/components/ImageCard';
-import UploadZone from '@/components/UploadZone';
-import TagPill from '@/components/TagPill';
-import Modal from '@/components/Modal';
+import { useState, useEffect, useCallback } from "react";
+import { useParams, useNavigate } from "react-router-dom";
+import { ArrowLeft, Plus, Play, Tag as TagIcon, Download, Trash2, X, ZoomIn } from "lucide-react";
+import { albumApi, imageApi, tagApi, getImageUrlWithAuth, type Album, type ImageItem, type Tag, type PermissionLevel } from "@/lib/api";
+import ImageCard from "@/components/ImageCard";
+import UploadZone from "@/components/UploadZone";
+import Modal from "@/components/Modal";
 
 export default function AlbumDetail() {
-  const { albumId } = useParams<{ albumId: string }>();
+  const { albumId } = useParams();
   const navigate = useNavigate();
+  const permission = localStorage.getItem("permission") as PermissionLevel;
 
-  const currentAlbum = useStore((s) => s.currentAlbum);
-  const setCurrentAlbum = useStore((s) => s.setCurrentAlbum);
-  const images = useStore((s) => s.images);
-  const fetchImagesByAlbum = useStore((s) => s.fetchImagesByAlbum);
-  const addImage = useStore((s) => s.addImage);
-  const deleteImage = useStore((s) => s.deleteImage);
-  const moveImage = useStore((s) => s.moveImage);
-  const tags = useStore((s) => s.tags);
-  const fetchTags = useStore((s) => s.fetchTags);
-  const addTagToImage = useStore((s) => s.addTagToImage);
-  const removeTagFromImage = useStore((s) => s.removeTagFromImage);
-  const selectedImages = useStore((s) => s.selectedImages);
-  const toggleImageSelection = useStore((s) => s.toggleImageSelection);
-  const clearSelection = useStore((s) => s.clearSelection);
-  const albums = useStore((s) => s.albums);
-  const fetchAlbums = useStore((s) => s.fetchAlbums);
-  const renameAlbum = useStore((s) => s.renameAlbum);
+  const [album, setAlbum] = useState<Album | null>(null);
+  const [images, setImages] = useState<ImageItem[]>([]);
+  const [imageTags, setImageTags] = useState<Record<string, Tag[]>>({});
+  const [tags, setTags] = useState<Tag[]>([]);
+  const [showTagModal, setShowTagModal] = useState(false);
+  const [showBatchTagModal, setShowBatchTagModal] = useState(false);
+  const [selectedImageId, setSelectedImageId] = useState<string | null>(null);
+  const [newTagId, setNewTagId] = useState("");
+  const [selectedImages, setSelectedImages] = useState<Set<string>>(new Set());
 
-  const [editingName, setEditingName] = useState(false);
-  const [nameInput, setNameInput] = useState('');
-  const [selectedTagIds, setSelectedTagIds] = useState<Set<string>>(new Set());
-  const [imageTagMap, setImageTagMap] = useState<Map<string, Set<string>>>(new Map());
-  const [moveModalOpen, setMoveModalOpen] = useState(false);
-  const [tagModalOpen, setTagModalOpen] = useState(false);
-  const [batchTagIds, setBatchTagIds] = useState<Set<string>>(new Set());
-
-  // Fetch data
   useEffect(() => {
-    if (albumId) {
-      fetchImagesByAlbum(albumId);
-      fetchTags();
-      fetchAlbums();
-      // Set current album
-      db.albums.get(albumId).then((album) => {
-        if (album) setCurrentAlbum(album);
-      });
-    }
-  }, [albumId, fetchImagesByAlbum, fetchTags, fetchAlbums, setCurrentAlbum]);
+    fetchData();
+  }, [albumId]);
 
-  // Load image-tag mappings
   useEffect(() => {
-    const allImageTags: ImageTag[] = [];
-    db.imageTags.toArray().then((rows) => {
-      const map = new Map<string, Set<string>>();
-      for (const row of rows) {
-        let set = map.get(row.imageId);
-        if (!set) { set = new Set(); map.set(row.imageId, set); }
-        set.add(row.tagId);
+    const handleRefresh = () => {
+      fetchData();
+    };
+    window.addEventListener('tagDeleted', handleRefresh);
+    window.addEventListener('tagCreated', handleRefresh);
+    return () => {
+      window.removeEventListener('tagDeleted', handleRefresh);
+      window.removeEventListener('tagCreated', handleRefresh);
+    };
+  }, [albumId]);
+
+  const fetchData = async () => {
+    if (!albumId) return;
+    try {
+      const [albumData, imagesData, tagsData] = await Promise.all([
+        albumApi.getById(albumId),
+        imageApi.getByAlbum(albumId),
+        tagApi.getAll(),
+      ]);
+      setAlbum(albumData);
+      setImages(imagesData);
+      setTags(tagsData);
+      
+      const tagsMap: Record<string, Tag[]> = {};
+      for (const img of imagesData) {
+        tagsMap[img.id] = await tagApi.getByImage(img.id);
       }
-      setImageTagMap(map);
-    });
-  }, [images]);
-
-  // Filtered images by selected tags (AND logic)
-  const filteredImages = selectedTagIds.size === 0
-    ? images
-    : images.filter((img) => {
-        const imgTags = imageTagMap.get(img.id);
-        if (!imgTags) return false;
-        for (const tid of selectedTagIds) { if (!imgTags.has(tid)) return false; }
-        return true;
-      });
-
-  // Editable name
-  const startEdit = () => { if (currentAlbum) { setNameInput(currentAlbum.name); setEditingName(true); } };
-  const commitName = async () => {
-    if (currentAlbum && nameInput.trim() && nameInput.trim() !== currentAlbum.name) {
-      await renameAlbum(currentAlbum.id, nameInput.trim());
+      setImageTags(tagsMap);
+    } catch (error) {
+      console.error("Failed to fetch data:", error);
     }
-    setEditingName(false);
   };
 
-  // Upload
   const handleUpload = useCallback(async (files: FileList) => {
     if (!albumId) return;
-    for (const f of Array.from(files)) await addImage(albumId, f);
-  }, [albumId, addImage]);
-
-  // Batch delete
-  const batchDelete = async () => {
-    for (const id of selectedImages) await deleteImage(id);
-    clearSelection();
-  };
-
-  // Batch move
-  const batchMove = async (targetId: string) => {
-    for (const id of selectedImages) await moveImage(id, targetId);
-    clearSelection();
-    setMoveModalOpen(false);
-    if (albumId) await fetchImagesByAlbum(albumId);
-  };
-
-  // Batch tag
-  const batchTag = async () => {
-    for (const imgId of selectedImages) {
-      for (const tagId of batchTagIds) await addTagToImage(imgId, tagId);
+    for (let i = 0; i < files.length; i++) {
+      await imageApi.upload(albumId, files[i]);
     }
-    clearSelection();
-    setBatchTagIds(new Set());
-    setTagModalOpen(false);
+    fetchData();
+  }, [albumId]);
+
+  const handleDeleteImage = useCallback(async (id: string) => {
+    await imageApi.delete(id);
+    
+    // 如果删除的是封面图片，尝试设置新封面
+    if (album?.coverImageId === id) {
+      const remainingImages = images.filter(img => img.id !== id);
+      if (remainingImages.length > 0) {
+        await albumApi.update(albumId!, { coverImageId: remainingImages[0].id });
+      } else {
+        await albumApi.update(albumId!, { coverImageId: null });
+      }
+    }
+    
+    // 使用 setTimeout 确保状态更新完成后再调用 fetchData
+    setTimeout(() => {
+      fetchData();
+    }, 0);
+  }, [album?.coverImageId, images, albumId]);
+
+  const handleBatchDelete = useCallback(async () => {
+    const ids = Array.from(selectedImages);
+    
+    // 检查是否删除封面图片
+    const coverImageId = album?.coverImageId;
+    let needUpdateCover = coverImageId && selectedImages.has(coverImageId);
+    let newCoverId: string | null = null;
+    
+    if (needUpdateCover) {
+      const remainingImages = images.filter(img => !selectedImages.has(img.id));
+      if (remainingImages.length > 0) {
+        newCoverId = remainingImages[0].id;
+      }
+    }
+    
+    // 批量删除图片
+    for (const id of ids) {
+      await imageApi.delete(id);
+    }
+    
+    // 更新封面
+    if (needUpdateCover) {
+      await albumApi.update(albumId!, { coverImageId: newCoverId });
+    }
+    
+    // 清空选择
+    setSelectedImages(new Set());
+    
+    // 使用 setTimeout 确保状态更新完成后再调用 fetchData
+    setTimeout(() => {
+      fetchData();
+    }, 0);
+  }, [selectedImages, album?.coverImageId, images, albumId]);
+
+  const handleAddTag = useCallback(async () => {
+    if (!selectedImageId || !newTagId) return;
+    try {
+      await tagApi.addToImage(selectedImageId, newTagId);
+    } catch (error) {
+      // 忽略重复添加的错误
+    }
+    setShowTagModal(false);
+    setNewTagId("");
+    fetchData();
+  }, [selectedImageId, newTagId]);
+
+  const handleBatchAddTag = useCallback(async () => {
+    if (!newTagId || selectedImages.size === 0) return;
+
+    // 验证标签是否存在
+    const tagExists = tags.some(t => t.id === newTagId);
+    if (!tagExists) {
+      setNewTagId("");
+      return;
+    }
+
+    const ids = Array.from(selectedImages);
+    const tagIdToUse = newTagId; // 保存当前标签ID
+
+    // 先清空状态
+    setShowBatchTagModal(false);
+    setNewTagId("");
+    setSelectedImages(new Set());
+
+    // 然后执行批量添加
+    for (const id of ids) {
+      try {
+        await tagApi.addToImage(id, tagIdToUse);
+      } catch (error) {
+        // 忽略重复添加的错误
+      }
+    }
+
+    // 使用 setTimeout 确保状态更新完成后再调用 fetchData
+    setTimeout(() => {
+      fetchData();
+    }, 0);
+  }, [newTagId, selectedImages, tags]);
+
+  const handleRemoveTag = useCallback(async (imageId: string, tagId: string) => {
+    try {
+      await tagApi.removeFromImage(imageId, tagId);
+      // 立即更新状态，不等待fetchData
+      setImageTags(prev => {
+        const newTagsMap = { ...prev };
+        if (newTagsMap[imageId]) {
+          newTagsMap[imageId] = newTagsMap[imageId].filter(t => t.id !== tagId);
+        }
+        return newTagsMap;
+      });
+      // 使用 setTimeout 确保状态更新完成后再调用 fetchData
+      setTimeout(() => {
+        fetchData();
+      }, 0);
+    } catch (error) {
+      console.error("Failed to remove tag:", error);
+    }
+  }, []);
+
+  const handlePlaySlideshow = useCallback(() => {
+    navigate(`/slideshow/play?albumId=${albumId}`);
+  }, [albumId, navigate]);
+
+  const toggleImageSelection = (id: string) => {
+    setSelectedImages(prev => {
+      const newSet = new Set(prev);
+      if (newSet.has(id)) {
+        newSet.delete(id);
+      } else {
+        newSet.add(id);
+      }
+      return newSet;
+    });
   };
 
-  const otherAlbums = albums.filter((a) => a.id !== albumId);
-  const selCount = selectedImages.size;
+  const canEdit = permission === "editor" || permission === "admin";
+
+  if (!album) {
+    return (
+      <div className="min-h-screen bg-[#1A1A2E] flex items-center justify-center">
+        <div className="text-[#F5F0EB]/50">加载中...</div>
+      </div>
+    );
+  }
 
   return (
-    <div className="min-h-screen bg-gradient-to-br from-[#1A1A2E] to-[#16213E] px-4 py-6 sm:px-6 lg:px-8">
+    <div className="min-h-screen bg-[#1A1A2E]" style={{ fontFamily: "'DM Sans', sans-serif" }}>
       {/* Header */}
-      <div className="flex items-center gap-4 mb-6">
-        <button onClick={() => navigate('/')} className="w-9 h-9 rounded-full bg-white/5 flex items-center justify-center text-[#F5F0EB]/70 hover:bg-white/10 hover:text-[#F5F0EB] transition-colors">
-          <ArrowLeft size={18} />
-        </button>
-        {editingName ? (
-          <input value={nameInput} onChange={(e) => setNameInput(e.target.value)} onBlur={commitName} onKeyDown={(e) => e.key === 'Enter' && commitName()} autoFocus className="text-2xl font-bold text-[#F5F0EB] bg-transparent border-b-2 border-[#E8845C] outline-none px-1" style={{ fontFamily: "'Playfair Display', serif" }} />
-        ) : (
-          <h1 className="text-2xl font-bold text-[#F5F0EB] flex items-center gap-2 cursor-pointer group" onClick={startEdit} style={{ fontFamily: "'Playfair Display', serif" }}>
-            {currentAlbum?.name ?? '相册'}
-            <Pencil size={14} className="text-[#F5F0EB]/30 group-hover:text-[#E8845C] transition-colors" />
-          </h1>
-        )}
-        <span className="text-sm text-[#F5F0EB]/40 ml-auto">{images.length} 张图片</span>
-      </div>
+      <header className="sticky top-0 z-10 bg-[#16213E]/80 backdrop-blur-md border-b border-white/5">
+        <div className="max-w-7xl mx-auto px-6 py-4">
+          <div className="flex items-center justify-between">
+            <div className="flex items-center gap-4">
+              <button
+                onClick={() => navigate("/")}
+                className="p-2 hover:bg-white/5 rounded-lg transition-colors"
+              >
+                <ArrowLeft size={20} className="text-[#F5F0EB]" />
+              </button>
+              <div>
+                <h1 className="text-xl font-bold text-[#F5F0EB]" style={{ fontFamily: "'Playfair Display', serif" }}>
+                  {album.name}
+                </h1>
+                <p className="text-sm text-[#F5F0EB]/50">{images.length} 张照片</p>
+              </div>
+            </div>
+            <div className="flex items-center gap-3">
+              <button
+                onClick={handlePlaySlideshow}
+                disabled={images.length === 0}
+                className="flex items-center gap-2 px-4 py-2 bg-white/5 border border-white/10 hover:bg-white/10 disabled:opacity-30 disabled:cursor-not-allowed rounded-lg text-sm transition-colors"
+              >
+                <Play size={16} />
+                <span>轮播播放</span>
+              </button>
+            </div>
+          </div>
+        </div>
+      </header>
 
+      {/* Batch actions bar */}
+      {selectedImages.size > 0 && (
+        <div className="bg-[#16213E] border-b border-white/5">
+          <div className="max-w-7xl mx-auto px-6 py-3">
+            <div className="flex items-center justify-between">
+              <div className="flex items-center gap-4">
+                <span className="text-sm text-[#F5F0EB]/70">已选择 {selectedImages.size} 张照片</span>
+                <button
+                  onClick={() => setSelectedImages(new Set())}
+                  className="text-sm text-[#F5F0EB]/50 hover:text-[#F5F0EB] transition-colors"
+                >
+                  取消选择
+                </button>
+              </div>
+              <div className="flex items-center gap-3">
+                <button
+                  onClick={() => {
+                    setSelectedImageId(Array.from(selectedImages)[0]);
+                    setShowBatchTagModal(true);
+                  }}
+                  disabled={selectedImages.size === 0}
+                  className="flex items-center gap-2 px-3 py-1.5 bg-white/5 border border-white/10 hover:bg-white/10 disabled:opacity-30 disabled:cursor-not-allowed rounded-lg text-sm transition-colors"
+                >
+                  <TagIcon size={14} />
+                  <span>添加标签</span>
+                </button>
+                <button
+                  onClick={handleBatchDelete}
+                  disabled={selectedImages.size === 0}
+                  className="flex items-center gap-2 px-3 py-1.5 bg-red-500/20 border border-red-500/30 hover:bg-red-500/30 disabled:opacity-30 disabled:cursor-not-allowed rounded-lg text-sm text-red-400 transition-colors"
+                >
+                  <Trash2 size={14} />
+                  <span>批量删除</span>
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Main content */}
+      <main className="max-w-7xl mx-auto px-6 py-8">
       {/* Upload zone */}
-      <div className="mb-6">
-        <UploadZone onUpload={handleUpload} albumId={albumId} />
-      </div>
-
-      {/* Tag filter bar */}
-      {tags.length > 0 && (
-        <div className="mb-6 flex gap-2 overflow-x-auto pb-2 scrollbar-hide">
-          {tags.map((tag) => (
-            <TagPill key={tag.id} tag={tag} selected={selectedTagIds.has(tag.id)} onToggle={() => {
-              setSelectedTagIds((prev) => { const next = new Set(prev); next.has(tag.id) ? next.delete(tag.id) : next.add(tag.id); return next; });
-            }} />
-          ))}
+      {canEdit && (
+        <div className="mb-6">
+          <UploadZone onUpload={handleUpload} albumId={albumId!} compact />
         </div>
       )}
+        
+        {images.length > 0 ? (
+          <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 gap-3">
+            {images.map((image) => (
+              <ImageCard
+                key={image.id}
+                image={{
+                  id: image.id,
+                  url: getImageUrlWithAuth(image.id),
+                  name: image.name,
+                  tags: imageTags[image.id] || [],
+                }}
+                onClick={() => navigate(`/preview/${image.id}`)}
+                onAddTag={() => {
+                  setSelectedImageId(image.id);
+                  setShowTagModal(true);
+                }}
+                onRemoveTag={(tagId) => handleRemoveTag(image.id, tagId)}
+                onDelete={canEdit ? () => handleDeleteImage(image.id) : undefined}
+                isSelected={selectedImages.has(image.id)}
+                onToggleSelect={() => toggleImageSelection(image.id)}
+                canEdit={canEdit}
+              />
+            ))}
+          </div>
+        ) : (
+          <div className="flex flex-col items-center justify-center py-20">
+            <div className="w-24 h-24 rounded-full bg-[#E8845C]/10 flex items-center justify-center mb-6">
+              <Plus size={48} className="text-[#E8845C]/60" />
+            </div>
+            <h3 className="text-xl font-semibold text-[#F5F0EB] mb-2" style={{ fontFamily: "'Playfair Display', serif" }}>
+              暂无照片
+            </h3>
+            <p className="text-[#F5F0EB]/50">上传一些照片到这个相册</p>
+          </div>
+        )}
+      </main>
 
-      {/* Image grid */}
-      {filteredImages.length > 0 ? (
-        <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 xl:grid-cols-6 gap-4">
-          {filteredImages.map((img) => (
-            <ImageCard
-              key={img.id}
-              image={{ id: img.id, url: objectUrls.get(img.id) ?? '', name: img.name }}
-              selected={selectedImages.has(img.id)}
-              onSelect={() => toggleImageSelection(img.id)}
-              onDelete={() => deleteImage(img.id)}
-              onPreview={() => navigate(`/preview/${img.id}`)}
-            />
-          ))}
-        </div>
-      ) : (
-        <div className="flex flex-col items-center justify-center py-24 text-[#F5F0EB]/30">
-          <ImageOff size={48} strokeWidth={1.5} />
-          <p className="mt-4 text-sm">此相册暂无图片</p>
-        </div>
-      )}
-
-      {/* Batch action bar */}
-      {selCount > 0 && (
-        <div className="fixed bottom-6 left-1/2 -translate-x-1/2 flex items-center gap-3 px-5 py-3 rounded-2xl bg-[#1A1A2E]/95 border border-white/10 backdrop-blur-md shadow-2xl z-40">
-          <span className="text-sm text-[#F5F0EB]/70">已选 {selCount} 张</span>
-          <button onClick={batchDelete} className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-red-500/15 text-red-400 hover:bg-red-500/25 text-sm transition-colors">
-            <Trash2 size={14} /> 删除
-          </button>
-          <button onClick={() => setMoveModalOpen(true)} className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-[#E8845C]/15 text-[#E8845C] hover:bg-[#E8845C]/25 text-sm transition-colors">
-            <FolderInput size={14} /> 移动
-          </button>
-          <button onClick={() => setTagModalOpen(true)} className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-blue-500/15 text-blue-400 hover:bg-blue-500/25 text-sm transition-colors">
-            <TagIcon size={14} /> 标签
-          </button>
-        </div>
-      )}
-
-      {/* Move modal */}
-      <Modal isOpen={moveModalOpen} onClose={() => setMoveModalOpen(false)} title="移动到相册">
-        <div className="flex flex-col gap-2 max-h-64 overflow-y-auto">
-          {otherAlbums.length === 0 && <p className="text-sm text-[#F5F0EB]/40">没有其他相册</p>}
-          {otherAlbums.map((a) => (
-            <button key={a.id} onClick={() => batchMove(a.id)} className="text-left px-4 py-2.5 rounded-xl bg-white/5 hover:bg-[#E8845C]/15 text-[#F5F0EB]/80 hover:text-[#E8845C] text-sm transition-colors">
-              {a.name}
+      {/* Add Tag Modal */}
+      <Modal isOpen={showTagModal} onClose={() => setShowTagModal(false)}>
+        <div className="p-6">
+          <h3 className="text-lg font-semibold text-[#F5F0EB] mb-4" style={{ fontFamily: "'Playfair Display', serif" }}>
+            添加标签
+          </h3>
+          <select
+            value={newTagId}
+            onChange={(e) => setNewTagId(e.target.value)}
+            className="w-full bg-[#1A1A2E] border border-white/10 rounded-lg px-4 py-2.5 text-[#F5F0EB] outline-none focus:border-[#E8845C]/50"
+          >
+            <option value="">选择标签...</option>
+            {tags.map((tag) => (
+              <option key={tag.id} value={tag.id}>{tag.name}</option>
+            ))}
+          </select>
+          <div className="flex gap-3 mt-4">
+            <button
+              onClick={() => setShowTagModal(false)}
+              className="flex-1 px-4 py-2 bg-white/5 border border-white/10 hover:bg-white/10 rounded-lg text-[#F5F0EB] transition-colors"
+            >
+              取消
             </button>
-          ))}
+            <button
+              onClick={handleAddTag}
+              disabled={!newTagId}
+              className="flex-1 px-4 py-2 bg-[#E8845C] hover:bg-[#E8845C]/80 disabled:opacity-50 disabled:cursor-not-allowed rounded-lg font-medium text-white transition-colors"
+            >
+              添加
+            </button>
+          </div>
         </div>
       </Modal>
 
-      {/* Tag modal */}
-      <Modal isOpen={tagModalOpen} onClose={() => { setTagModalOpen(false); setBatchTagIds(new Set()); }} title="批量添加标签">
-        <div className="flex flex-wrap gap-2 mb-4">
-          {tags.map((tag) => (
-            <TagPill key={tag.id} tag={tag} selected={batchTagIds.has(tag.id)} onToggle={() => {
-              setBatchTagIds((prev) => { const next = new Set(prev); next.has(tag.id) ? next.delete(tag.id) : next.add(tag.id); return next; });
-            }} />
-          ))}
+      {/* Batch Add Tag Modal */}
+      <Modal isOpen={showBatchTagModal} onClose={() => {
+        setShowBatchTagModal(false);
+        setNewTagId("");
+      }}>
+        <div className="p-6">
+          <h3 className="text-lg font-semibold text-[#F5F0EB] mb-4" style={{ fontFamily: "'Playfair Display', serif" }}>
+            批量添加标签
+          </h3>
+          <p className="text-sm text-[#F5F0EB]/50 mb-4">将标签添加到 {selectedImages.size} 张照片</p>
+          <select
+            value={newTagId}
+            onChange={(e) => setNewTagId(e.target.value)}
+            className="w-full bg-[#1A1A2E] border border-white/10 rounded-lg px-4 py-2.5 text-[#F5F0EB] outline-none focus:border-[#E8845C]/50"
+          >
+            <option value="">选择标签...</option>
+            {tags.map((tag) => (
+              <option key={tag.id} value={tag.id}>{tag.name}</option>
+            ))}
+          </select>
+          <div className="flex gap-3 mt-4">
+            <button
+              onClick={() => setShowBatchTagModal(false)}
+              className="flex-1 px-4 py-2 bg-white/5 border border-white/10 hover:bg-white/10 rounded-lg text-[#F5F0EB] transition-colors"
+            >
+              取消
+            </button>
+            <button
+              onClick={handleBatchAddTag}
+              disabled={!newTagId}
+              className="flex-1 px-4 py-2 bg-[#E8845C] hover:bg-[#E8845C]/80 disabled:opacity-50 disabled:cursor-not-allowed rounded-lg font-medium text-white transition-colors"
+            >
+              添加
+            </button>
+          </div>
         </div>
-        <button onClick={batchTag} disabled={batchTagIds.size === 0} className="w-full py-2 rounded-xl bg-[#E8845C] text-white font-medium text-sm hover:bg-[#E8845C]/90 disabled:opacity-40 disabled:cursor-not-allowed transition-colors">
-          确认添加
-        </button>
       </Modal>
     </div>
   );

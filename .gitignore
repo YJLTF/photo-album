@@ -21,6 +21,7 @@ pnpm-debug.log*
 # Editor
 .vscode/
 .idea/
+.trae/
 *.swp
 *.swo
 *~
@@ -35,3 +36,6 @@ Thumbs.db
 
 # Database (IndexedDB - stored in browser)
 *.db
+
+backend/data/*
+backend/uploads/*
