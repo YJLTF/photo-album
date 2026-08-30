@@ -175,6 +175,9 @@ export const imageApi = {
       const token = getToken();
       const formData = new FormData();
       formData.append("albumId", albumId);
+      // 文件名走普通文本字段（按 UTF-8 解码，无乱码问题）；
+      // 直接放在 part header 里的 filename 会被服务端按 latin1 解码
+      formData.append("name", file.name);
 
       const appendFile = () => {
         formData.append(isVideo ? "video" : "image", file);

@@ -232,6 +232,15 @@ router.get("/:id", authenticateMedia, asyncHandler(async (req, res) => {
   res.sendFile(filePath);
 }));
 
+// 浏览器按 UTF-8 原始字节发送 multipart 文件名，而 multer/busboy 默认按 latin1 解码，
+// 中文名会变成 "ÖÐÎÄ..." 式乱码；将 latin1 字节还原回 UTF-8。
+// 已是正常 Unicode（含 >0xFF 字符）或转换后出现替代符的（本就不是 UTF-8 字节）保持原样。
+const fixMojibakeName = (name: string): string => {
+  if (/[^\x00-\xff]/.test(name)) return name;
+  const fixed = Buffer.from(name, "latin1").toString("utf8");
+  return fixed.includes("\uFFFD") || fixed === name ? name : fixed;
+};
+
 router.post(
   "/",
   authenticate,
@@ -251,6 +260,11 @@ router.post(
       throw new HttpError(400, "Album ID and image are required");
     }
 
+    // 前端会随表单附带 UTF-8 的 name 字段（文本字段不存在文件名解码问题），优先采用；
+    // 其他客户端（如 curl）没有该字段时回退到 originalname 并尝试还原乱码
+    const requestedName = typeof req.body.name === "string" ? req.body.name.trim() : "";
+    const name = requestedName || fixMojibakeName(file.originalname);
+
     // 按上传内容判断类型（不依赖字段名，旧客户端把视频放进 image 字段也能正确入库）
     const isVideo = file.mimetype.startsWith("video/");
     // multer 全局上限按视频放宽，图片的 20MB 限制在这里补校验
@@ -266,7 +280,7 @@ router.post(
 
     const image = new Image();
     image.albumId = albumId;
-    image.name = file.originalname;
+    image.name = name;
     image.filePath = file.filename;
     image.fileSize = file.size;
     image.mimeType = file.mimetype;
