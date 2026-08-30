@@ -9,8 +9,9 @@ export class Album {
   @Column()
   name: string;
 
-  @Column({ nullable: true })
-  coverImageId: string;
+  // 显式声明列类型：联合类型经 reflect-metadata 反射为 Object，SQLite 无法推断
+  @Column({ type: "varchar", nullable: true })
+  coverImageId: string | null;
 
   // 回收站：非 NULL 表示已软删除（相册删除时其中的图片一并软删除）
   @Column({ type: "datetime", nullable: true })

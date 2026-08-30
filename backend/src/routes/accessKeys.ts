@@ -1,4 +1,5 @@
 import { Router } from "express";
+import { Not } from "typeorm";
 import { AppDataSource } from "../data-source";
 import { AccessKey, PermissionLevel, PermissionLevels } from "../entity/AccessKey";
 import { authenticate, requirePermission, AuthenticatedRequest } from "../middleware/auth";
@@ -14,14 +15,23 @@ const repo = () => AppDataSource.getRepository(AccessKey);
 const findKeyByPlain = (plainKey: string) =>
   repo().findOne({ where: [{ key: lookupHash(plainKey) }, { key: plainKey }] });
 
-// 防止把系统里最后一个可用的管理员密钥删掉/禁用，导致无人能管理
-const assertNotLastAdmin = async (target: AccessKey, nextActive?: boolean) => {
-  const willRemainAdmin = target.permission === "admin" && nextActive !== false;
-  if (!willRemainAdmin) return;
+// 防止把系统里最后一个可用的管理员密钥删掉/禁用/降级，导致无人能管理。
+// 只有当该密钥当前是"启用的管理员"、且变更后将不再是时才需要检查。
+const assertNotLastAdmin = async (
+  target: AccessKey,
+  next: { permission?: PermissionLevel; active?: boolean }
+) => {
+  if (target.permission !== "admin" || !target.active) return;
 
-  const activeAdmins = await repo().count({ where: { permission: "admin", active: true } });
-  if (activeAdmins <= 1) {
-    throw new HttpError(400, "不能禁用或删除最后一个启用的管理员密钥");
+  const nextPermission = next.permission ?? target.permission;
+  const nextActive = next.active ?? target.active;
+  if (nextPermission === "admin" && nextActive) return;
+
+  const otherActiveAdmins = await repo().count({
+    where: { permission: "admin", active: true, id: Not(target.id) },
+  });
+  if (otherActiveAdmins === 0) {
+    throw new HttpError(400, "不能禁用、删除或降级最后一个启用的管理员密钥");
   }
 };
 
@@ -67,18 +77,17 @@ router.put("/:id", authenticate, requirePermission("admin"), asyncHandler(async 
     throw new HttpError(404, "Access key not found");
   }
 
-  if (permission !== undefined) {
-    if (!PermissionLevels.includes(permission)) {
-      throw new HttpError(400, "Invalid permission level");
-    }
-    // 降权前确认不是最后一个管理员
-    await assertNotLastAdmin(accessKey, permission === "admin" ? accessKey.active : false);
-    accessKey.permission = permission;
+  if (permission !== undefined && !PermissionLevels.includes(permission)) {
+    throw new HttpError(400, "Invalid permission level");
   }
-  if (active !== undefined) {
-    await assertNotLastAdmin(accessKey, active);
-    accessKey.active = active;
+
+  // 降级 / 禁用前确认不是最后一个管理员（值校验通过后再做保护检查）
+  if (permission !== undefined || active !== undefined) {
+    await assertNotLastAdmin(accessKey, { permission, active });
   }
+
+  if (permission !== undefined) accessKey.permission = permission;
+  if (active !== undefined) accessKey.active = active;
   if (description !== undefined) accessKey.description = description;
 
   await repo().save(accessKey);
@@ -93,7 +102,7 @@ router.delete("/:id", authenticate, requirePermission("admin"), asyncHandler(asy
     throw new HttpError(404, "Access key not found");
   }
 
-  await assertNotLastAdmin(target, false);
+  await assertNotLastAdmin(target, { active: false });
 
   await repo().delete(id);
   res.json({ message: "Access key deleted" });

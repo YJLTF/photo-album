@@ -48,6 +48,3 @@ export const decryptKey = (stored: string | null | undefined): string => {
   }
 };
 
-// 是否已是加密存储（用于旧数据的惰性迁移判断）
-export const isEncrypted = (stored: string | null | undefined): boolean =>
-  Boolean(stored && stored.startsWith("enc:v1:"));

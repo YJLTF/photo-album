@@ -23,6 +23,12 @@ import { getRetentionDays, isAutoPurgeEnabled, purgeExpiredRecycleItems } from "
 const app = express();
 const PORT = process.env.PORT || 3001;
 
+// 部署在 nginx 等反向代理之后时设置 TRUST_PROXY=1（或代理跳数），
+// 登录限流才能按真实客户端 IP 计数；直连部署保持关闭，避免 X-Forwarded-For 伪造绕过限流
+if (process.env.TRUST_PROXY) {
+  app.set("trust proxy", Number(process.env.TRUST_PROXY) || 1);
+}
+
 app.use(cors());
 app.use(express.json());
 app.use(express.urlencoded({ extended: true }));

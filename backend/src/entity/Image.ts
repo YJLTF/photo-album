@@ -1,8 +1,11 @@
-import { Entity, PrimaryGeneratedColumn, Column, CreateDateColumn, ManyToOne, JoinColumn, OneToMany } from "typeorm";
+import { Entity, Index, PrimaryGeneratedColumn, Column, CreateDateColumn, ManyToOne, JoinColumn, OneToMany } from "typeorm";
 import { Album } from "./Album";
 import { ImageTag } from "./ImageTag";
 
 @Entity()
+// 相册内图片列表按 (albumId, deletedAt) 过滤最频繁；回收站清理/展示按 deletedAt 过滤
+@Index(["albumId", "deletedAt"])
+@Index(["deletedAt"])
 export class Image {
   @PrimaryGeneratedColumn("uuid")
   id: string;
@@ -29,7 +32,8 @@ export class Image {
   mimeType: string;
 
   // 媒体类型：image 图片；video 视频（缩略图是上传时浏览器截取的封面帧，服务端无法用 sharp 生成）
-  @Column({ default: "image" })
+  // 显式声明列类型：字符串字面量联合类型经反射为 Object，SQLite 无法推断
+  @Column({ type: "varchar", default: "image" })
   type: "image" | "video";
 
   // 视频时长（秒），图片为 null

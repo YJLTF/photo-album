@@ -61,7 +61,7 @@ const upload = multer({
     if (ALLOWED_IMAGE_TYPES.has(file.mimetype) || ALLOWED_VIDEO_TYPES.has(file.mimetype)) {
       cb(null, true);
     } else {
-      cb(new HttpError(400, "仅支持上传 JPG / PNG / GIF / WebP / BMP / AVIF 图片，或 MP4 / WebP / MOV / MKV / AVI 视频"));
+      cb(new HttpError(400, "仅支持上传 JPG / PNG / GIF / WebP / BMP / AVIF 图片，或 MP4 / WebM / MOV / MKV / AVI 等格式视频"));
     }
   }
 });
@@ -140,10 +140,20 @@ router.get("/:id/meta", authenticate, asyncHandler(async (req, res) => {
 const THUMB_MAX_SIZE = 640;
 const thumbFileOf = (filePath: string) => `${filePath}.webp`;
 
+// 异步探测文件存在性：请求热路径避免同步 IO 阻塞事件循环
+const fileExists = async (p: string): Promise<boolean> => {
+  try {
+    await fs.promises.access(p);
+    return true;
+  } catch {
+    return false;
+  }
+};
+
 // 生成（若不存在）并返回缩略图路径；tmp 文件先写后改名，避免并发请求读到半成品
 const ensureThumbnail = async (originalFile: string): Promise<string> => {
   const thumbPath = path.join(THUMBS_DIR, thumbFileOf(path.basename(originalFile)));
-  if (fs.existsSync(thumbPath)) return thumbPath;
+  if (await fileExists(thumbPath)) return thumbPath;
 
   const tmpPath = `${thumbPath}.${crypto.randomUUID()}.tmp`;
   await sharp(originalFile)
@@ -179,14 +189,14 @@ router.get("/:id/thumbnail", authenticateMedia, asyncHandler(async (req, res) =>
   }
 
   const originalPath = path.join(STORAGE_DIR, image.filePath);
-  if (!fs.existsSync(originalPath)) {
+  if (!(await fileExists(originalPath))) {
     throw new HttpError(404, "Image file not found");
   }
 
   // 视频：sharp 无法转码，返回上传时浏览器截取的封面帧；没有则 404，由前端显示占位图标
   if (image.type === "video") {
     for (const posterPath of posterFilesOf(image.filePath)) {
-      if (!fs.existsSync(posterPath)) continue;
+      if (!(await fileExists(posterPath))) continue;
       res.setHeader("Cache-Control", "private, max-age=604800");
       res.setHeader(
         "Content-Type",
@@ -218,7 +228,7 @@ router.get("/:id", authenticateMedia, asyncHandler(async (req, res) => {
   }
 
   const filePath = path.join(STORAGE_DIR, image.filePath);
-  if (!fs.existsSync(filePath)) {
+  if (!(await fileExists(filePath))) {
     throw new HttpError(404, "Image file not found");
   }
 
@@ -275,6 +285,8 @@ router.post(
 
     const album = await AppDataSource.getRepository(Album).findOne({ where: { id: albumId } });
     if (!album) {
+      // 文件已被 multer 落盘，相册不存在时删掉，避免磁盘积累孤儿文件
+      await fs.promises.unlink(file.path).catch(() => {});
       throw new HttpError(404, "Album not found");
     }
 
@@ -314,9 +326,13 @@ router.post(
       ensureThumbnail(file.path).catch(() => {});
     }
 
-    // 如果相册还没有封面且这是第一张图片，则自动设为封面
+    // 如果相册还没有封面且这是第一张（未删除的）图片，则自动设为封面。
+    // 计数必须排除回收站中的图片：清空相册后重新上传时，否则回收站里的
+    // 旧图会把计数顶到 2，导致封面永远不会自动设置
     if (!album.coverImageId) {
-      const imageCount = await AppDataSource.getRepository(Image).count({ where: { albumId } });
+      const imageCount = await AppDataSource.getRepository(Image).count({
+        where: { albumId, deletedAt: IsNull() },
+      });
       if (imageCount === 1) {
         album.coverImageId = image.id;
         await AppDataSource.getRepository(Album).save(album);
@@ -338,6 +354,18 @@ router.delete("/:id", authenticate, requirePermission("editor"), asyncHandler(as
   }
 
   await AppDataSource.getRepository(Image).update({ id }, { deletedAt: new Date() });
+
+  // 删除的是相册封面时由服务端顺延到剩余第一张（或清空），
+  // 不依赖客户端处理，避免其他客户端 / API 直接删除时封面悬空
+  const album = await AppDataSource.getRepository(Album).findOne({ where: { id: image.albumId } });
+  if (album && album.coverImageId === id) {
+    const next = await AppDataSource.getRepository(Image).findOne({
+      where: { albumId: album.id, deletedAt: IsNull() },
+      order: { createdAt: "ASC" },
+    });
+    album.coverImageId = next ? next.id : null;
+    await AppDataSource.getRepository(Album).save(album);
+  }
 
   res.json({ message: "Image moved to recycle bin" });
 }));

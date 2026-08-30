@@ -62,7 +62,20 @@ router.put("/:id", authenticate, requirePermission("editor"), asyncHandler(async
   }
 
   if (typeof name === "string" && name.trim()) album.name = name.trim();
-  if (coverImageId !== undefined) album.coverImageId = coverImageId;
+  if (coverImageId !== undefined) {
+    if (coverImageId === null || coverImageId === "") {
+      album.coverImageId = null;
+    } else {
+      // 封面必须指向本相册内未删除的图片，防止悬空或跨相册引用
+      const cover = await imageRepo().findOne({
+        where: { id: String(coverImageId), albumId: id, deletedAt: IsNull() },
+      });
+      if (!cover) {
+        throw new HttpError(400, "封面图片不存在或不属于该相册");
+      }
+      album.coverImageId = cover.id;
+    }
+  }
 
   await albumRepo().save(album);
   res.json(album);

@@ -1,4 +1,4 @@
-import { Entity, PrimaryGeneratedColumn, Column, ManyToOne, JoinColumn } from "typeorm";
+import { Entity, Index, PrimaryGeneratedColumn, Column, ManyToOne, JoinColumn } from "typeorm";
 import { Slideshow } from "./Slideshow";
 
 export type TextPosition =
@@ -11,6 +11,7 @@ export type TextPosition =
   | 'bottom-right';
 
 @Entity()
+@Index(["slideshowId"])
 export class SlideshowImage {
   @PrimaryGeneratedColumn("uuid")
   id: string;
@@ -27,7 +28,8 @@ export class SlideshowImage {
   @Column({ nullable: true })
   overlayText: string;
 
-  @Column()
+  // 显式声明列类型：字符串字面量联合类型经反射为 Object，SQLite 无法推断
+  @Column({ type: "varchar" })
   textPosition: TextPosition;
 
   @Column()

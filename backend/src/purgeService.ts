@@ -17,11 +17,26 @@ export const posterFilesOf = (filePath: string): string[] =>
     path.join(THUMBS_DIR, `${filePath}${suffix}`)
   );
 
-// 彻底删除：数据行 + 轮播引用 + 物理文件与缩略图/封面帧（文件删除失败不影响结果，仅占用磁盘）
+// 彻底删除：数据行 + 轮播引用 + 物理文件与缩略图/封面帧（文件删除失败不影响结果，仅占用磁盘）。
+// 若被删图片是某个相册的封面，顺延到该相册剩余第一张（或清空），避免封面悬空
 export const purgeImages = async (images: Image[]) => {
   if (images.length === 0) return;
-  await slideRepo().delete({ imageId: In(images.map(i => i.id)) });
-  await imageRepo().delete({ id: In(images.map(i => i.id)) });
+  const purgedIds = images.map(i => i.id);
+
+  const albumsToFix = await albumRepo().find({ where: { coverImageId: In(purgedIds) } });
+  if (albumsToFix.length > 0) {
+    for (const album of albumsToFix) {
+      const next = await imageRepo().findOne({
+        where: { albumId: album.id, deletedAt: IsNull() },
+        order: { createdAt: "ASC" },
+      });
+      album.coverImageId = next ? next.id : null;
+    }
+    await albumRepo().save(albumsToFix);
+  }
+
+  await slideRepo().delete({ imageId: In(purgedIds) });
+  await imageRepo().delete({ id: In(purgedIds) });
   await Promise.all(images.map(img =>
     Promise.all([
       fs.promises.unlink(path.join(STORAGE_DIR, img.filePath)).catch(() => {}),

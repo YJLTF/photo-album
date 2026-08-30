@@ -2,7 +2,7 @@ import { Router, Request, Response, NextFunction } from "express";
 import jwt from "jsonwebtoken";
 import { AppDataSource } from "../data-source";
 import { AccessKey } from "../entity/AccessKey";
-import { authenticate } from "../middleware/auth";
+import { authenticate, verifyAccessToken } from "../middleware/auth";
 import { asyncHandler } from "../middleware/asyncHandler";
 import { HttpError } from "../httpError";
 import { lookupHash, encryptKey } from "../keyCrypto";
@@ -20,6 +20,14 @@ const loginFailures = new Map<string, { count: number; resetAt: number }>();
 const loginRateLimiter = (req: Request, res: Response, next: NextFunction) => {
   const ip = req.ip || "unknown";
   const now = Date.now();
+
+  // 过期条目惰性清理，避免长期运行下 Map 无限增长
+  if (loginFailures.size > 500) {
+    for (const [k, v] of loginFailures) {
+      if (now >= v.resetAt) loginFailures.delete(k);
+    }
+  }
+
   const entry = loginFailures.get(ip);
 
   if (entry && now < entry.resetAt) {
@@ -100,9 +108,10 @@ router.post("/validate", asyncHandler(async (req, res) => {
 
   const token = authHeader.slice(7);
 
+  // verifyAccessToken 会拒绝媒体令牌（无 key，不能借此通过 validate 换取权限信息）
   let decoded: { key: string };
   try {
-    decoded = jwt.verify(token, process.env.JWT_SECRET!) as { key: string };
+    decoded = verifyAccessToken(token);
   } catch {
     throw new HttpError(401, "Invalid token");
   }

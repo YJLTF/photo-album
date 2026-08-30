@@ -11,7 +11,8 @@ export class Slideshow {
   @Column()
   name: string;
 
-  @Column()
+  // 显式声明列类型：字符串字面量联合类型经反射为 Object，SQLite 无法推断
+  @Column({ type: "varchar" })
   transitionEffect: TransitionEffect;
 
   @Column()

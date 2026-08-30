@@ -21,8 +21,9 @@ const extractToken = (req: Request): string => {
   return "";
 };
 
-// 完整访问令牌：携带 key，需要回库校验密钥仍然有效
-const verifyAccessToken = (token: string): { key: string } => {
+// 完整访问令牌：携带 key，需要回库校验密钥仍然有效。
+// 导出供 /auth/validate 等自行解析令牌的路由复用，避免遗漏"媒体令牌不可当 API 令牌"的校验。
+export const verifyAccessToken = (token: string): { key: string; kid?: string } => {
   const decoded = jwt.verify(token, process.env.JWT_SECRET!) as { key?: string; media?: boolean };
   // 媒体令牌没有 key，绝不允许当作 API 访问令牌使用
   if (decoded.media === true || !decoded.key) {

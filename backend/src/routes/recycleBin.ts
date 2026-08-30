@@ -6,7 +6,7 @@ import { Image } from "../entity/Image";
 import { authenticate, requirePermission } from "../middleware/auth";
 import { asyncHandler } from "../middleware/asyncHandler";
 import { HttpError } from "../httpError";
-import { autoPurgeAt, isAutoPurgeEnabled, purgeImages } from "../purgeService";
+import { autoPurgeAt, getRetentionDays, isAutoPurgeEnabled, purgeImages } from "../purgeService";
 
 const router = Router();
 
@@ -55,6 +55,8 @@ router.get("/", authenticate, requirePermission("editor"), asyncHandler(async (r
 
   res.json({
     autoPurgeDisabled: !isAutoPurgeEnabled(),
+    // 保留天数供前端展示真实配置（不硬编码"30 天"）；自动清理关闭时为 null
+    retentionDays: isAutoPurgeEnabled() ? getRetentionDays() : null,
     albums: deletedAlbums.map(a => ({
       id: a.id,
       name: a.name,
