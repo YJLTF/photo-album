@@ -1,34 +1,17 @@
 import { Router } from "express";
-import fs from "fs";
-import path from "path";
-import { IsNull, Not, In } from "typeorm";
+import { In, IsNull, Not } from "typeorm";
 import { AppDataSource } from "../data-source";
 import { Album } from "../entity/Album";
 import { Image } from "../entity/Image";
-import { SlideshowImage } from "../entity/SlideshowImage";
 import { authenticate, requirePermission } from "../middleware/auth";
 import { asyncHandler } from "../middleware/asyncHandler";
 import { HttpError } from "../httpError";
-import { STORAGE_DIR, THUMBS_DIR } from "../storage";
+import { autoPurgeAt, isAutoPurgeEnabled, purgeImages } from "../purgeService";
 
 const router = Router();
 
 const albumRepo = () => AppDataSource.getRepository(Album);
 const imageRepo = () => AppDataSource.getRepository(Image);
-const slideRepo = () => AppDataSource.getRepository(SlideshowImage);
-
-// 彻底删除：数据行 + 轮播引用 + 物理文件与缩略图（文件删除失败不影响结果，仅占用磁盘）
-const purgeImages = async (images: Image[]) => {
-  if (images.length === 0) return;
-  await slideRepo().delete({ imageId: In(images.map(i => i.id)) });
-  await imageRepo().delete({ id: In(images.map(i => i.id)) });
-  await Promise.all(images.map(img =>
-    Promise.all([
-      fs.promises.unlink(path.join(STORAGE_DIR, img.filePath)).catch(() => {}),
-      fs.promises.unlink(path.join(THUMBS_DIR, `${img.filePath}.webp`)).catch(() => {}),
-    ])
-  ));
-};
 
 const findDeletedAlbum = async (id: string) => {
   const album = await albumRepo().findOne({ where: { id, deletedAt: Not(IsNull()) } });
@@ -66,12 +49,18 @@ router.get("/", authenticate, requirePermission("editor"), asyncHandler(async (r
   const deletedAlbumIds = new Set(deletedAlbums.map(a => a.id));
   const albumNames = new Map([...deletedAlbums, ...liveAlbums].map(a => [a.id, a.name]));
 
+  // autoPurgeAt：保留期内预计的彻底删除时间；自动清理关闭时为 null
+  const purgeAtOf = (deletedAt: Date) =>
+    isAutoPurgeEnabled() ? autoPurgeAt(deletedAt) : null;
+
   res.json({
+    autoPurgeDisabled: !isAutoPurgeEnabled(),
     albums: deletedAlbums.map(a => ({
       id: a.id,
       name: a.name,
       deletedAt: a.deletedAt,
       imageCount: countMap.get(a.id) ?? 0,
+      autoPurgeAt: a.deletedAt ? purgeAtOf(a.deletedAt) : null,
     })),
     images: deletedImages
       .filter(i => !deletedAlbumIds.has(i.albumId))
@@ -81,6 +70,8 @@ router.get("/", authenticate, requirePermission("editor"), asyncHandler(async (r
         albumId: i.albumId,
         albumName: albumNames.get(i.albumId) ?? "未知相册",
         deletedAt: i.deletedAt,
+        type: i.type,
+        autoPurgeAt: i.deletedAt ? purgeAtOf(i.deletedAt) : null,
       })),
   });
 }));

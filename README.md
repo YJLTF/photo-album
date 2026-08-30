@@ -1,6 +1,6 @@
 # 个人相册应用（服务版）
 
-一款面向个人用户的图片管理工具，支持图片上传、预览、相册分类、标签管理与自定义轮播播放。数据存放在服务器端，通过访问密码进行权限控制。
+一款面向个人用户的媒体管理工具，支持图片与视频上传、预览、相册分类、标签管理与自定义轮播播放。数据存放在服务器端，通过访问密码进行权限控制。
 
 ## 功能特性
 
@@ -15,14 +15,17 @@
 - 自定义封面上传
 - **自动封面**：新建相册后上传的第一张图片会被自动设为封面
 
-### 🖼️ 图片管理
+### 🖼️ 图片与视频管理
 - 拖拽或点击上传（支持批量，真实上传进度）
-- 网格展示（服务端 WebP 缩略图，按需生成并缓存）
-- 全屏预览（缩放、左右切换）
+- 支持视频上传（MP4 / WebM / MOV / MKV / AVI，≤ 500MB），上传时浏览器自动截取封面帧
+- 网格展示（服务端 WebP 缩略图，按需生成并缓存；视频卡片带播放角标）
+- 全屏预览（图片缩放/旋转，视频原生播放器、支持拖动进度条）
 - 单张 / 批量删除（删除封面图时自动顺延到剩余的第一张）
+- 相册内容较多时分页加载（每页 50 个，"加载更多"追加）
 
 ### 🗑️ 回收站
 - 删除的相册与图片为软删除，可在回收站中恢复
+- **30 天自动清理**：软删除超过 30 天的条目由后端定时任务彻底删除（`RECYCLE_RETENTION_DAYS` 可调，设为 0 关闭）
 - 彻底删除 / 清空回收站时才清理物理文件与轮播引用
 - 相册恢复时其中的图片一并恢复
 
@@ -33,7 +36,7 @@
 - 标签页内可视化管理、创建、删除
 
 ### 🎬 轮播功能
-- 从相册中选择轮播图片
+- 从相册中选择轮播图片（仅图片；视频不参与轮播）
 - 多种切换效果（淡入淡出 / 滑动 / 缩放 / 翻转 / 模糊）
 - 为每张图片添加自定义文字与位置
 - 设置切换间隔与自动播放
@@ -52,8 +55,8 @@
 ### 后端
 - **框架**：Express 4 + TypeScript
 - **数据库**：SQLite + TypeORM
-- **认证**：JWT（jsonwebtoken；访问密钥明文存储于数据库，请务必使用强密钥）
-- **文件上传**：Multer 2（仅允许图片格式，单文件最大 20MB）
+- **认证**：JWT（jsonwebtoken；访问密钥加密存储，见「安全说明」）
+- **文件上传**：Multer 2（图片 ≤ 20MB，视频 ≤ 500MB；视频封面帧由浏览器截取，服务端无 ffmpeg 依赖）
 
 ## 快速开始
 
@@ -185,7 +188,7 @@ cp .deploy.env.example .deploy.env   # 填入服务器 SSH 密码（已被 .giti
 通过卷挂载到宿主机（docker-compose.yml 中定义，位于项目根目录）：
 
 - `./data` → 容器 `/app/data`（SQLite 数据库）
-- `./uploads` → 容器 `/app/uploads`（上传的图片文件）
+- `./uploads` → 容器 `/app/uploads`（上传的图片与视频文件）
 
 ### 环境变量
 
@@ -197,6 +200,7 @@ cp .deploy.env.example .deploy.env   # 填入服务器 SSH 密码（已被 .giti
 | `VITE_API_URL` | 前端构建时使用的 API 地址；留空则使用相对路径 `/api`（同源部署）。跨域时填完整 URL | 否 | `/api` |
 | `DATABASE_PATH` | SQLite 数据库文件路径 | 否 | `./data/photo-album.sqlite` |
 | `UPLOAD_DIR` | 上传图片存储目录 | 否 | `./uploads` |
+| `RECYCLE_RETENTION_DAYS` | 回收站保留天数，超期自动彻底删除；设为 `0` 或负数关闭自动清理 | 否 | `30` |
 
 修改 `.env` 后需要 `docker-compose up -d --build` 重新构建（仅 `VITE_API_URL` 影响前端构建产物；`PORT` / `JWT_SECRET` 在容器启动时读取）。
 
@@ -220,11 +224,14 @@ photo-album/
 │   │   │   ├── albums.ts
 │   │   │   ├── images.ts
 │   │   │   ├── tags.ts
-│   │   │   └── slideshows.ts
+│   │   │   ├── slideshows.ts
+│   │   │   └── recycleBin.ts
 │   │   ├── middleware/auth.ts
 │   │   ├── middleware/asyncHandler.ts
 │   │   ├── data-source.ts
 │   │   ├── httpError.ts
+│   │   ├── keyCrypto.ts              # 访问密钥加密 / 查找摘要
+│   │   ├── purgeService.ts           # 彻底删除与回收站到期清理
 │   │   ├── storage.ts
 │   │   └── index.ts
 │   ├── data/                         # SQLite 数据库文件（运行时生成）
@@ -233,6 +240,8 @@ photo-album/
 │   ├── components/
 │   │   ├── AlbumCard.tsx
 │   │   ├── ImageCard.tsx
+│   │   ├── VideoBadge.tsx
+│   │   ├── Toast.tsx
 │   │   ├── UploadZone.tsx
 │   │   ├── TagPill.tsx
 │   │   ├── SlideshowCard.tsx
@@ -243,14 +252,18 @@ photo-album/
 │   ├── pages/
 │   │   ├── Login.tsx
 │   │   ├── Home.tsx                  # 相册列表主页
-│   │   ├── AlbumDetail.tsx           # 相册详情（上传、批量打标签等）
+│   │   ├── AlbumDetail.tsx           # 相册详情（分页、上传、批量打标签等）
 │   │   ├── ImagePreview.tsx
 │   │   ├── Tags.tsx                  # 标签筛选页
+│   │   ├── RecycleBin.tsx            # 回收站（恢复 / 彻底删除）
 │   │   ├── SlideshowEdit.tsx
 │   │   ├── SlideshowPlay.tsx
 │   │   └── AccessKeys.tsx            # 访问密钥管理（ADMIN）
 │   ├── lib/
 │   │   ├── api.ts                    # API 封装（含类型定义与 401 全局处理）
+│   │   ├── toastStore.ts             # 全局操作反馈 Toast
+│   │   ├── videoPoster.ts            # 视频封面帧提取（浏览器端）
+│   │   ├── imageFilter.ts            # 标签/搜索纯函数过滤
 │   │   ├── constants.ts              # 共享常量（权限文案、标签调色板、转场文案）
 │   │   └── utils.ts
 │   ├── App.tsx
@@ -286,15 +299,15 @@ photo-album/
 | 密钥 | `/access-keys/:id/key` | PATCH | ADMIN 或本人 | 修改自己的密钥后旧 token 失效，需重新登录 |
 | 相册 | `/albums` | GET / POST | GET 任意 / POST EDITOR+ | 列表每项含 `imageCount` |
 | 相册 | `/albums/:id` | GET / PUT / DELETE | GET 任意 / 写 EDITOR+ | DELETE 为软删除（移入回收站） |
-| 图片 | `/images` | GET | 任意 | 全部图片（标签筛选页用） |
+| 图片 | `/images` | GET | 任意 | 全部图片（标签筛选页用）；支持 `?page=&limit=`（≤500）分页，返回 `{items,total,page,limit,totalPages}` 信封，不传则一次拉全量 |
 | 图片 | `/images/recent?limit=8` | GET | 任意 | 最近上传 |
-| 图片 | `/images/album/:albumId` | GET | 任意 | |
+| 图片 | `/images/album/:albumId` | GET | 任意 | 相册图片；分页参数同上 |
 | 图片 | `/images/:id/meta` | GET | 任意 | 图片元数据（JSON，含宽高） |
-| 图片 | `/images/:id/thumbnail` | GET | 任意（媒体令牌可用） | 网格缩略图（WebP，首次按需生成后落盘缓存） |
-| 图片 | `/images/:id` | GET | 任意（媒体令牌可用） | 图片文件本体（带一天浏览器缓存头） |
-| 图片 | `/images` | POST | EDITOR+ | 仅图片格式，单文件 ≤ 20MB；上传时记录真实宽高并预生成缩略图 |
+| 图片 | `/images/:id/thumbnail` | GET | 任意（媒体令牌可用） | 网格缩略图（WebP，首次按需生成后落盘缓存）；视频返回上传时截取的封面帧 |
+| 图片 | `/images/:id` | GET | 任意（媒体令牌可用） | 媒体文件本体（带一天浏览器缓存头；支持 Range 请求，视频可拖动进度条） |
+| 图片 | `/images` | POST | EDITOR+ | 图片（字段 `image`，≤ 20MB）或视频（字段 `video`，≤ 500MB，可附 `poster` 封面帧与宽高/时长）；图片记录真实宽高并预生成缩略图 |
 | 图片 | `/images/:id` | DELETE | EDITOR+ | 软删除（移入回收站） |
-| 回收站 | `/recycle-bin` | GET / DELETE | EDITOR+ | DELETE 为清空回收站 |
+| 回收站 | `/recycle-bin` | GET / DELETE | EDITOR+ | GET 返回各条目的 `autoPurgeAt`（到期自动删除时间）；DELETE 为清空回收站 |
 | 回收站 | `/recycle-bin/albums/:id` | DELETE | EDITOR+ | 彻底删除相册及图片文件 |
 | 回收站 | `/recycle-bin/albums/:id/restore` | POST | EDITOR+ | 恢复相册（图片一并恢复） |
 | 回收站 | `/recycle-bin/images/:id` | DELETE | EDITOR+ | 彻底删除单张图片 |
@@ -313,8 +326,8 @@ photo-album/
 
 - **访问密钥加密存储**：数据库中 `key` 列保存 HMAC-SHA256 查找摘要、`keyEnc` 列保存 AES-256-GCM 密文——SQLite 文件单独泄露拿不到密钥明文，管理员界面仍可查看/复制（由服务端用派生密钥解密返回）。旧版明文数据在下次成功登录时自动迁移，无需手动处理。
 - **注意**：更换 `JWT_SECRET`（或 `KEY_SECRET`）会使已存储的密钥无法匹配/解密，相当于重置全部访问密钥，需要重建数据库或手动修数。
-- **图片 URL 使用短期媒体令牌**（10 分钟），完整 JWT 不再出现在 URL 中；媒体令牌只能访问图片文件，不能调用数据接口。
-- 登录接口有基于 IP 的失败限流；上传仅允许图片格式且单文件 ≤ 20MB。
+- **图片 URL 使用短期媒体令牌**（10 分钟），完整 JWT 不再出现在 URL 中；媒体令牌只能访问媒体文件，不能调用数据接口。
+- 登录接口有基于 IP 的失败限流；上传仅允许常见图片格式（≤ 20MB）与常见视频格式（≤ 500MB）。
 
 ## 设计风格
 
@@ -329,6 +342,7 @@ photo-album/
 
 - 上传图片时：若相册无封面且这是首张图，自动设为封面
 - 删除图片 / 相册时：软删除（移入回收站），物理文件保留可恢复
+- **回收站条目超过保留期（默认 30 天）后：后端每小时自动彻底删除**（文件、缩略图与轮播引用一并清理）
 - 彻底删除（回收站中删除或清空）时：清理磁盘文件、缩略图，并清理引用该图的轮播条目
 - 删除标签时：清理所有图片与该标签的关联
 - （客户端在删除封面图时同样会处理封面顺延 / 清空）

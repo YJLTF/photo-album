@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback } from "react";
+import { useState, useEffect, useCallback, useRef } from "react";
 import { useParams, useNavigate } from "react-router-dom";
 import { ArrowLeft, Plus, Play, Tag as TagIcon, Trash2 } from "lucide-react";
 import { albumApi, imageApi, tagApi, getThumbnailUrlWithAuth, type Album, type ImageItem, type Tag, type PermissionLevel } from "@/lib/api";
@@ -7,6 +7,9 @@ import UploadZone from "@/components/UploadZone";
 import Modal from "@/components/Modal";
 import { toast } from "@/lib/toastStore";
 
+// 相册网格分页大小：一次只渲染一页，底部"加载更多"追加下一页
+const PAGE_SIZE = 50;
+
 export default function AlbumDetail() {
   const { albumId } = useParams();
   const navigate = useNavigate();
@@ -14,6 +17,11 @@ export default function AlbumDetail() {
 
   const [album, setAlbum] = useState<Album | null>(null);
   const [images, setImages] = useState<ImageItem[]>([]);
+  const [total, setTotal] = useState(0);
+  const [page, setPage] = useState(1);
+  const [loadingMore, setLoadingMore] = useState(false);
+  // 删除/上传后按已加载的页数刷新，保持滚动位置；初始为第一页
+  const loadedPagesRef = useRef(1);
   const [imageTags, setImageTags] = useState<Record<string, Tag[]>>({});
   const [tags, setTags] = useState<Tag[]>([]);
   const [showTagModal, setShowTagModal] = useState(false);
@@ -22,28 +30,40 @@ export default function AlbumDetail() {
   const [newTagId, setNewTagId] = useState("");
   const [selectedImages, setSelectedImages] = useState<Set<string>>(new Set());
 
-  const fetchData = useCallback(async () => {
+  const fetchPages = useCallback(async (pages: number) => {
     if (!albumId) return;
     try {
-      // 相册、图片、标签、图片-标签映射各一个请求，不再逐图查询
-      const [albumData, imagesData, tagsData, tagMap] = await Promise.all([
+      // 相册、标签、图片-标签映射各一个请求，不再逐图查询
+      const [albumData, tagsData, tagMap] = await Promise.all([
         albumApi.getById(albumId),
-        imageApi.getByAlbum(albumId),
         tagApi.getAll(),
         tagApi.getAlbumMap(albumId),
       ]);
       setAlbum(albumData);
-      setImages(imagesData);
       setTags(tagsData);
       setImageTags(tagMap);
+
+      const first = await imageApi.getByAlbum(albumId, 1, PAGE_SIZE);
+      let items = first.items;
+      const pagesToLoad = Math.min(Math.max(pages, 1), first.totalPages);
+      for (let p = 2; p <= pagesToLoad; p++) {
+        const extra = await imageApi.getByAlbum(albumId, p, PAGE_SIZE);
+        items = [...items, ...extra.items];
+      }
+      loadedPagesRef.current = pagesToLoad;
+      setImages(items);
+      setTotal(first.total);
+      setPage(pagesToLoad);
     } catch (error) {
       console.error("Failed to fetch data:", error);
     }
   }, [albumId]);
 
+  const fetchData = useCallback(() => fetchPages(loadedPagesRef.current), [fetchPages]);
+
   useEffect(() => {
-    fetchData();
-  }, [fetchData]);
+    fetchPages(1);
+  }, [fetchPages]);
 
   useEffect(() => {
     const handleRefresh = () => {
@@ -57,6 +77,23 @@ export default function AlbumDetail() {
     };
   }, [fetchData]);
 
+  const loadMore = useCallback(async () => {
+    if (!albumId || loadingMore) return;
+    setLoadingMore(true);
+    try {
+      const next = page + 1;
+      const data = await imageApi.getByAlbum(albumId, next, PAGE_SIZE);
+      loadedPagesRef.current = next;
+      setPage(next);
+      setTotal(data.total);
+      setImages(prev => [...prev, ...data.items]);
+    } catch (error) {
+      console.error("Failed to load more:", error);
+    } finally {
+      setLoadingMore(false);
+    }
+  }, [albumId, page, loadingMore]);
+
   const handleUpload = useCallback(async (
     files: FileList,
     onFileProgress?: (fileName: string, percent: number) => void
@@ -67,7 +104,7 @@ export default function AlbumDetail() {
         const file = files[i];
         await imageApi.upload(albumId, file, percent => onFileProgress?.(file.name, percent));
       }
-      toast.success(`已上传 ${files.length} 张照片`);
+      toast.success(files.length > 1 ? `已上传 ${files.length} 个文件` : "已上传");
       fetchData();
     } catch (error) {
       toast.error(error instanceof Error ? error.message : "上传失败");
@@ -222,7 +259,7 @@ export default function AlbumDetail() {
                 <h1 className="text-xl font-bold text-[#F5F0EB]" style={{ fontFamily: "'Playfair Display', serif" }}>
                   {album.name}
                 </h1>
-                <p className="text-sm text-[#F5F0EB]/50">{images.length} 张照片</p>
+                <p className="text-sm text-[#F5F0EB]/50">{total} 个文件</p>
               </div>
             </div>
             <div className="flex items-center gap-3">
@@ -289,29 +326,43 @@ export default function AlbumDetail() {
       )}
 
         {images.length > 0 ? (
-          <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 gap-3">
-            {images.map((image) => (
-              <ImageCard
-                key={image.id}
-                image={{
-                  id: image.id,
-                  url: getThumbnailUrlWithAuth(image.id),
-                  name: image.name,
-                  tags: imageTags[image.id] || [],
-                }}
-                onClick={() => navigate(`/preview/${image.id}`)}
-                onAddTag={() => {
-                  setSelectedImageId(image.id);
-                  setShowTagModal(true);
-                }}
-                onRemoveTag={(tagId) => handleRemoveTag(image.id, tagId)}
-                onDelete={canEdit ? () => handleDeleteImage(image.id) : undefined}
-                isSelected={selectedImages.has(image.id)}
-                onToggleSelect={() => toggleImageSelection(image.id)}
-                canEdit={canEdit}
-              />
-            ))}
-          </div>
+          <>
+            <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 gap-3">
+              {images.map((image) => (
+                <ImageCard
+                  key={image.id}
+                  image={{
+                    id: image.id,
+                    url: getThumbnailUrlWithAuth(image.id),
+                    name: image.name,
+                    tags: imageTags[image.id] || [],
+                  }}
+                  isVideo={image.type === "video"}
+                  onClick={() => navigate(`/preview/${image.id}`)}
+                  onAddTag={() => {
+                    setSelectedImageId(image.id);
+                    setShowTagModal(true);
+                  }}
+                  onRemoveTag={(tagId) => handleRemoveTag(image.id, tagId)}
+                  onDelete={canEdit ? () => handleDeleteImage(image.id) : undefined}
+                  isSelected={selectedImages.has(image.id)}
+                  onToggleSelect={() => toggleImageSelection(image.id)}
+                  canEdit={canEdit}
+                />
+              ))}
+            </div>
+            {images.length < total && (
+              <div className="flex justify-center mt-8">
+                <button
+                  onClick={loadMore}
+                  disabled={loadingMore}
+                  className="px-6 py-2.5 bg-white/5 border border-white/10 hover:bg-white/10 disabled:opacity-50 disabled:cursor-not-allowed rounded-lg text-sm text-[#F5F0EB] transition-colors"
+                >
+                  {loadingMore ? "加载中..." : `加载更多（${images.length} / ${total}）`}
+                </button>
+              </div>
+            )}
+          </>
         ) : (
           <div className="flex flex-col items-center justify-center py-20">
             <div className="w-24 h-24 rounded-full bg-[#E8845C]/10 flex items-center justify-center mb-6">

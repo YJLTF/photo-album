@@ -28,6 +28,14 @@ export class Image {
   @Column()
   mimeType: string;
 
+  // 媒体类型：image 图片；video 视频（缩略图是上传时浏览器截取的封面帧，服务端无法用 sharp 生成）
+  @Column({ default: "image" })
+  type: "image" | "video";
+
+  // 视频时长（秒），图片为 null
+  @Column({ type: "float", nullable: true })
+  duration: number | null;
+
   // 回收站：非 NULL 表示已软删除（恢复可还原，彻底删除时才清理物理文件）
   @Column({ type: "datetime", nullable: true })
   deletedAt: Date | null;

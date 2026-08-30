@@ -83,7 +83,8 @@ export default function SlideshowPlay() {
           setCurrentSlideshow(slideshow);
           setSlides(playable);
         } else if (albumId) {
-          const albumImages = await imageApi.getByAlbum(albumId);
+          // 轮播按图片处理，相册中的视频不参与（服务端无 ffmpeg 转码，播放节奏与定时器不匹配）
+          const albumImages = (await imageApi.getByAlbum(albumId)).items.filter(i => i.type !== "video");
           if (albumImages.length === 0) {
             setError('相册中没有图片');
             return;

@@ -1,9 +1,11 @@
-import { Eye, Trash2, Check, Plus, X } from "lucide-react";
+import { useState } from "react";
+import { Eye, Trash2, Check, Plus, X, Play, Film } from "lucide-react";
 import { cn } from "@/lib/utils";
 
 interface ImageCardProps {
   image: { id: string; url: string; name: string; tags?: Array<{ id: string; name: string; color: string }> };
   onClick: () => void;
+  isVideo?: boolean;
   onAddTag?: () => void;
   onRemoveTag?: (tagId: string) => void;
   onDelete?: () => void;
@@ -15,6 +17,7 @@ interface ImageCardProps {
 export default function ImageCard({
   image,
   onClick,
+  isVideo = false,
   onAddTag,
   onRemoveTag,
   onDelete,
@@ -22,19 +25,36 @@ export default function ImageCard({
   onToggleSelect,
   canEdit = true
 }: ImageCardProps) {
+  // 视频没有封面帧（上传时浏览器截取失败）时显示占位图标，而不是裂图
+  const [posterMissing, setPosterMissing] = useState(false);
+
   return (
     <div
       onClick={onClick}
       className="group relative aspect-square rounded-xl overflow-hidden bg-[#16213E] border border-white/5 cursor-pointer transition-all duration-300 hover:border-[#E8845C]/30 hover:shadow-[0_0_20px_rgba(232,132,92,0.15)]"
     >
       {/* Image */}
-      <img
-        src={image.url}
-        alt={image.name}
-        className="w-full h-full object-cover transition-transform duration-300 group-hover:scale-105"
-        loading="lazy"
-        decoding="async"
-      />
+      {posterMissing ? (
+        <div className="w-full h-full flex items-center justify-center text-[#F5F0EB]/20">
+          <Film size={36} />
+        </div>
+      ) : (
+        <img
+          src={image.url}
+          alt={image.name}
+          className="w-full h-full object-cover transition-transform duration-300 group-hover:scale-105"
+          loading="lazy"
+          decoding="async"
+          onError={() => isVideo && setPosterMissing(true)}
+        />
+      )}
+
+      {/* Video badge */}
+      {isVideo && !posterMissing && (
+        <div className="absolute bottom-2 right-2 w-7 h-7 rounded-full bg-black/60 backdrop-blur-sm flex items-center justify-center z-10">
+          <Play size={13} className="text-white ml-0.5" fill="currentColor" />
+        </div>
+      )}
 
       {/* Selection checkbox */}
       {onToggleSelect && (

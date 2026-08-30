@@ -12,11 +12,13 @@ import { authenticate, authenticateMedia, requirePermission } from "../middlewar
 import { asyncHandler } from "../middleware/asyncHandler";
 import { HttpError } from "../httpError";
 import { STORAGE_DIR, THUMBS_DIR } from "../storage";
+import { posterFilesOf } from "../purgeService";
 
 const router = Router();
 
-// 只允许图片类型（svg 可携带脚本，排除），单文件最大 20MB
-const ALLOWED_MIME_TYPES = new Set([
+// 允许的媒体类型（svg 可携带脚本，排除）。视频体积大，multer 全局上限按视频放宽，
+// 图片的 20MB 限制在入库前单独校验（见 POST /）。
+const ALLOWED_IMAGE_TYPES = new Set([
   "image/jpeg",
   "image/png",
   "image/gif",
@@ -24,7 +26,23 @@ const ALLOWED_MIME_TYPES = new Set([
   "image/bmp",
   "image/avif",
 ]);
-const MAX_FILE_SIZE = 20 * 1024 * 1024;
+const ALLOWED_VIDEO_TYPES = new Set([
+  "video/mp4",
+  "video/webm",
+  "video/quicktime",
+  "video/x-matroska",
+  "video/x-msvideo",
+  "video/ogg",
+]);
+const MAX_IMAGE_SIZE = 20 * 1024 * 1024;
+const MAX_VIDEO_SIZE = 500 * 1024 * 1024;
+
+// 浏览器截取的封面帧可能编码为 webp / jpeg / png，按实际类型落盘
+const POSTER_EXT_BY_MIME: Record<string, string> = {
+  "image/webp": ".webp",
+  "image/jpeg": ".jpg",
+  "image/png": ".png",
+};
 
 const storage = multer.diskStorage({
   destination: (req, file, cb) => {
@@ -38,21 +56,50 @@ const storage = multer.diskStorage({
 
 const upload = multer({
   storage,
-  limits: { fileSize: MAX_FILE_SIZE },
+  limits: { fileSize: MAX_VIDEO_SIZE },
   fileFilter: (_req, file, cb) => {
-    if (ALLOWED_MIME_TYPES.has(file.mimetype)) {
+    if (ALLOWED_IMAGE_TYPES.has(file.mimetype) || ALLOWED_VIDEO_TYPES.has(file.mimetype)) {
       cb(null, true);
     } else {
-      cb(new HttpError(400, "仅支持上传 JPG / PNG / GIF / WebP / BMP / AVIF 图片"));
+      cb(new HttpError(400, "仅支持上传 JPG / PNG / GIF / WebP / BMP / AVIF 图片，或 MP4 / WebP / MOV / MKV / AVI 视频"));
     }
   }
 });
 
-// 所有图片（供标签筛选页一次性拉取；不含回收站中的图片）
+// 分页参数：仅当显式传入 limit 时启用分页（上限 500），否则返回全量（供标签页/预览页一次拉取）
+const parsePaging = (query: Record<string, unknown>): { page: number; limit: number } | null => {
+  const limit = Math.floor(Number(query.limit));
+  if (!Number.isFinite(limit) || limit < 1) return null;
+  const page = Math.floor(Number(query.page));
+  return {
+    page: Number.isFinite(page) && page >= 1 ? Math.min(page, 100000) : 1,
+    limit: Math.min(limit, 500),
+  };
+};
+
+const paged = <T>(items: T[], total: number, paging: { page: number; limit: number } | null) => ({
+  items,
+  total,
+  page: paging?.page ?? 1,
+  limit: paging?.limit ?? Math.max(total, 1),
+  totalPages: paging ? Math.max(Math.ceil(total / paging.limit), 1) : 1,
+});
+
+// 所有图片（供标签筛选页一次性拉取；不含回收站中的图片）。传 page+limit 时返回分页信封
 router.get("/", authenticate, asyncHandler(async (req, res) => {
-  const images = await AppDataSource.getRepository(Image)
-    .find({ where: { deletedAt: IsNull() }, order: { createdAt: "DESC" } });
-  res.json(images);
+  const paging = parsePaging(req.query);
+  const repo = AppDataSource.getRepository(Image);
+  if (paging) {
+    const [items, total] = await repo.findAndCount({
+      where: { deletedAt: IsNull() },
+      order: { createdAt: "DESC" },
+      skip: (paging.page - 1) * paging.limit,
+      take: paging.limit,
+    });
+    return res.json(paged(items, total, paging));
+  }
+  const items = await repo.find({ where: { deletedAt: IsNull() }, order: { createdAt: "DESC" } });
+  res.json(paged(items, items.length, null));
 }));
 
 // 最近上传的图片（注意：必须注册在 /:id 之前，否则 "recent" 会被当成 id）
@@ -65,9 +112,19 @@ router.get("/recent", authenticate, asyncHandler(async (req, res) => {
 
 router.get("/album/:albumId", authenticate, asyncHandler(async (req, res) => {
   const albumId = String(req.params.albumId);
-  const images = await AppDataSource.getRepository(Image)
-    .find({ where: { albumId, deletedAt: IsNull() }, order: { createdAt: "ASC" } });
-  res.json(images);
+  const paging = parsePaging(req.query);
+  const repo = AppDataSource.getRepository(Image);
+  if (paging) {
+    const [items, total] = await repo.findAndCount({
+      where: { albumId, deletedAt: IsNull() },
+      order: { createdAt: "ASC" },
+      skip: (paging.page - 1) * paging.limit,
+      take: paging.limit,
+    });
+    return res.json(paged(items, total, paging));
+  }
+  const items = await repo.find({ where: { albumId, deletedAt: IsNull() }, order: { createdAt: "ASC" } });
+  res.json(paged(items, items.length, null));
 }));
 
 // 图片元数据（文件本体走 GET /:id，这里返回 JSON，供预览页反查所属相册）
@@ -126,6 +183,20 @@ router.get("/:id/thumbnail", authenticateMedia, asyncHandler(async (req, res) =>
     throw new HttpError(404, "Image file not found");
   }
 
+  // 视频：sharp 无法转码，返回上传时浏览器截取的封面帧；没有则 404，由前端显示占位图标
+  if (image.type === "video") {
+    for (const posterPath of posterFilesOf(image.filePath)) {
+      if (!fs.existsSync(posterPath)) continue;
+      res.setHeader("Cache-Control", "private, max-age=604800");
+      res.setHeader(
+        "Content-Type",
+        posterPath.endsWith(".webp") ? "image/webp" : posterPath.endsWith(".jpg") ? "image/jpeg" : "image/png"
+      );
+      return res.sendFile(posterPath);
+    }
+    throw new HttpError(404, "Video poster not found");
+  }
+
   try {
     const thumbPath = await ensureThumbnail(originalPath);
     res.setHeader("Cache-Control", "private, max-age=604800");
@@ -151,7 +222,8 @@ router.get("/:id", authenticateMedia, asyncHandler(async (req, res) => {
     throw new HttpError(404, "Image file not found");
   }
 
-  // 图片内容按 id 永不变化，允许浏览器缓存一天，避免每次刷新全量重新下载
+  // 内容按 id 永不变化，允许浏览器缓存一天，避免每次刷新全量重新下载；
+  // res.sendFile 基于 send 库，自动处理 Range 请求（视频拖动进度条依赖它）
   res.setHeader("Cache-Control", "private, max-age=86400");
   res.setHeader("X-Content-Type-Options", "nosniff");
   if (image.mimeType) {
@@ -160,45 +232,86 @@ router.get("/:id", authenticateMedia, asyncHandler(async (req, res) => {
   res.sendFile(filePath);
 }));
 
-router.post("/", authenticate, requirePermission("editor"), upload.single("image"), asyncHandler(async (req, res) => {
-  const { albumId } = req.body;
-  const file = req.file;
+router.post(
+  "/",
+  authenticate,
+  requirePermission("editor"),
+  upload.fields([
+    { name: "image", maxCount: 1 },
+    { name: "video", maxCount: 1 },
+    { name: "poster", maxCount: 1 },
+  ]),
+  asyncHandler(async (req, res) => {
+    const { albumId } = req.body;
+    const files = req.files as Record<string, Express.Multer.File[]> | undefined;
+    const file = files?.image?.[0] ?? files?.video?.[0];
+    const poster = files?.poster?.[0];
 
-  if (!albumId || !file) {
-    throw new HttpError(400, "Album ID and image are required");
-  }
-
-  const album = await AppDataSource.getRepository(Album).findOne({ where: { id: albumId } });
-  if (!album) {
-    throw new HttpError(404, "Album not found");
-  }
-
-  const image = new Image();
-  image.albumId = albumId;
-  image.name = file.originalname;
-  image.filePath = file.filename;
-  image.fileSize = file.size;
-  image.mimeType = file.mimetype;
-  const dims = await readDimensions(file.path);
-  image.width = dims.width;
-  image.height = dims.height;
-
-  await AppDataSource.getRepository(Image).save(image);
-
-  // 后台预生成缩略图，首批网格加载时无需逐张现场转码（失败不影响上传，路由会按需重试）
-  ensureThumbnail(file.path).catch(() => {});
-
-  // 如果相册还没有封面且这是第一张图片，则自动设为封面
-  if (!album.coverImageId) {
-    const imageCount = await AppDataSource.getRepository(Image).count({ where: { albumId } });
-    if (imageCount === 1) {
-      album.coverImageId = image.id;
-      await AppDataSource.getRepository(Album).save(album);
+    if (!albumId || !file) {
+      throw new HttpError(400, "Album ID and image are required");
     }
-  }
 
-  res.status(201).json(image);
-}));
+    // 按上传内容判断类型（不依赖字段名，旧客户端把视频放进 image 字段也能正确入库）
+    const isVideo = file.mimetype.startsWith("video/");
+    // multer 全局上限按视频放宽，图片的 20MB 限制在这里补校验
+    if (!isVideo && file.size > MAX_IMAGE_SIZE) {
+      await fs.promises.unlink(file.path).catch(() => {});
+      throw new HttpError(400, "图片最大 20MB");
+    }
+
+    const album = await AppDataSource.getRepository(Album).findOne({ where: { id: albumId } });
+    if (!album) {
+      throw new HttpError(404, "Album not found");
+    }
+
+    const image = new Image();
+    image.albumId = albumId;
+    image.name = file.originalname;
+    image.filePath = file.filename;
+    image.fileSize = file.size;
+    image.mimeType = file.mimetype;
+    image.type = isVideo ? "video" : "image";
+
+    if (isVideo) {
+      // 视频的尺寸/时长由浏览器在截取封面帧时读取（服务端没有 ffmpeg，不做转码）
+      const duration = Number(req.body.duration);
+      image.width = Math.max(Math.floor(Number(req.body.width)) || 0, 0);
+      image.height = Math.max(Math.floor(Number(req.body.height)) || 0, 0);
+      image.duration = Number.isFinite(duration) && duration > 0 ? duration : null;
+
+      // 封面帧与图片缩略图一样放 THUMBS_DIR，按实际编码选择扩展名
+      if (poster) {
+        const ext = POSTER_EXT_BY_MIME[poster.mimetype] ?? ".png";
+        const posterPath = path.join(THUMBS_DIR, `${file.filename}.poster${ext}`);
+        await fs.promises.rename(poster.path, posterPath)
+          .catch(() => fs.promises.unlink(poster.path).catch(() => {}));
+      }
+    } else {
+      const dims = await readDimensions(file.path);
+      image.width = dims.width;
+      image.height = dims.height;
+      image.duration = null;
+    }
+
+    await AppDataSource.getRepository(Image).save(image);
+
+    // 后台预生成缩略图，首批网格加载时无需逐张现场转码（失败不影响上传，路由会按需重试）
+    if (!isVideo) {
+      ensureThumbnail(file.path).catch(() => {});
+    }
+
+    // 如果相册还没有封面且这是第一张图片，则自动设为封面
+    if (!album.coverImageId) {
+      const imageCount = await AppDataSource.getRepository(Image).count({ where: { albumId } });
+      if (imageCount === 1) {
+        album.coverImageId = image.id;
+        await AppDataSource.getRepository(Album).save(album);
+      }
+    }
+
+    res.status(201).json(image);
+  })
+);
 
 // 删除图片 = 软删除（移入回收站）：物理文件与缩略图保留，可在回收站恢复；
 // 轮播引用暂不清理（文件仍可读，播放不受影响），彻底删除时才一并清理

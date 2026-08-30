@@ -59,7 +59,8 @@ export default function SlideshowEdit() {
   useEffect(() => {
     if (!selectedAlbumId) { setAlbumImages([]); return; }
     (async () => {
-      const imgs = await imageApi.getByAlbum(selectedAlbumId);
+      // 轮播仅支持图片：视频不参与（播放节奏与定时器不匹配）
+      const imgs = (await imageApi.getByAlbum(selectedAlbumId)).items.filter(i => i.type !== "video");
       setAlbumImages(imgs);
     })();
   }, [selectedAlbumId]);
@@ -83,10 +84,10 @@ export default function SlideshowEdit() {
         if (sl.images.length > 0 && albums.length > 0 && !selectedAlbumId) {
           const firstImageId = sl.images[0].imageId;
           for (const album of albums) {
-            const imgs = await imageApi.getByAlbum(album.id);
+            const imgs = (await imageApi.getByAlbum(album.id)).items;
             if (imgs.some(img => img.id === firstImageId)) {
               setSelectedAlbumId(album.id);
-              setAlbumImages(imgs);
+              setAlbumImages(imgs.filter(i => i.type !== "video"));
               break;
             }
           }

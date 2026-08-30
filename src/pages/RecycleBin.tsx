@@ -1,5 +1,5 @@
 import { useState, useEffect, useCallback } from "react";
-import { Trash2, RotateCcw, FolderOpen, Image as ImageIcon } from "lucide-react";
+import { Trash2, RotateCcw, FolderOpen, Image as ImageIcon, Film, Timer } from "lucide-react";
 import {
   recycleApi,
   getThumbnailUrlWithAuth,
@@ -11,9 +11,17 @@ import { toast } from "@/lib/toastStore";
 const formatDeletedAt = (value: string) =>
   new Date(value).toLocaleString("zh-CN", { hour12: false });
 
+// 距自动彻底删除还剩几天；不足一天按"即将"处理
+const formatAutoPurge = (value?: string | null) => {
+  if (!value) return null;
+  const days = Math.ceil((new Date(value).getTime() - Date.now()) / (24 * 60 * 60 * 1000));
+  return days > 0 ? `${days} 天后自动删除` : "即将自动删除";
+};
+
 export default function RecycleBin() {
   const [albums, setAlbums] = useState<RecycleBinAlbum[]>([]);
   const [images, setImages] = useState<RecycleBinImage[]>([]);
+  const [autoPurgeDisabled, setAutoPurgeDisabled] = useState(false);
   const [loading, setLoading] = useState(true);
 
   const fetchBin = useCallback(async () => {
@@ -21,6 +29,7 @@ export default function RecycleBin() {
       const data = await recycleApi.getBin();
       setAlbums(data.albums);
       setImages(data.images);
+      setAutoPurgeDisabled(Boolean(data.autoPurgeDisabled));
     } catch (error) {
       console.error("Failed to load recycle bin:", error);
     } finally {
@@ -82,7 +91,9 @@ export default function RecycleBin() {
                 回收站
               </h1>
               <p className="text-sm text-[#F5F0EB]/50 mt-1">
-                删除的相册与图片可在彻底删除前恢复
+                {autoPurgeDisabled
+                  ? "删除的相册与图片可在彻底删除前恢复"
+                  : "删除的内容保留 30 天，到期自动彻底删除；期间可随时恢复"}
               </p>
             </div>
             {!empty && (
@@ -133,6 +144,7 @@ export default function RecycleBin() {
                           <p className="font-medium text-[#F5F0EB] truncate">{album.name}</p>
                           <p className="text-xs text-[#F5F0EB]/40 mt-0.5">
                             {album.imageCount} 张图片 · 删除于 {formatDeletedAt(album.deletedAt)}
+                            {!autoPurgeDisabled && album.autoPurgeAt && ` · ${formatAutoPurge(album.autoPurgeAt)}`}
                           </p>
                         </div>
                       </div>
@@ -171,21 +183,34 @@ export default function RecycleBin() {
                       className="rounded-xl bg-[#16213E]/50 border border-white/5 overflow-hidden"
                     >
                       <div className="aspect-[4/3] bg-[#1A1A2E] flex items-center justify-center">
-                        <img
-                          src={getThumbnailUrlWithAuth(image.id)}
-                          alt={image.name}
-                          className="w-full h-full object-cover"
-                          loading="lazy"
-                        />
+                        {image.type === "video" ? (
+                          // 视频没有封面帧时不请求缩略图接口，直接显示占位图标
+                          <Film size={32} className="text-[#F5F0EB]/20" />
+                        ) : (
+                          <img
+                            src={getThumbnailUrlWithAuth(image.id)}
+                            alt={image.name}
+                            className="w-full h-full object-cover"
+                            loading="lazy"
+                          />
+                        )}
                       </div>
                       <div className="p-3">
                         <p className="text-sm text-[#F5F0EB] truncate flex items-center gap-1.5" title={image.name}>
-                          <ImageIcon size={13} className="shrink-0 text-[#F5F0EB]/30" />
+                          {image.type === "video"
+                            ? <Film size={13} className="shrink-0 text-[#F5F0EB]/30" />
+                            : <ImageIcon size={13} className="shrink-0 text-[#F5F0EB]/30" />}
                           {image.name}
                         </p>
                         <p className="text-xs text-[#F5F0EB]/40 mt-1 truncate">
                           {image.albumName} · 删除于 {formatDeletedAt(image.deletedAt)}
                         </p>
+                        {!autoPurgeDisabled && image.autoPurgeAt && (
+                          <p className="text-xs text-[#E8845C]/70 mt-0.5 flex items-center gap-1">
+                            <Timer size={11} />
+                            {formatAutoPurge(image.autoPurgeAt)}
+                          </p>
+                        )}
                         <div className="flex items-center gap-2 mt-3">
                           <button
                             onClick={() => handleRestoreImage(image)}

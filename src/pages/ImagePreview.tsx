@@ -1,7 +1,7 @@
 import { useState, useEffect, useCallback, useRef } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
 import { ArrowLeft, ArrowRight, X, Download, ZoomIn, ZoomOut, RotateCw } from 'lucide-react';
-import { imageApi, type ImageItem } from '@/lib/api';
+import { imageApi, getImageUrlWithAuth, type ImageItem } from '@/lib/api';
 
 export default function ImagePreview() {
   const { imageId } = useParams();
@@ -36,6 +36,17 @@ export default function ImagePreview() {
   }, [resetHideTimer]);
 
   const showImage = useCallback(async (img: ImageItem) => {
+    // 视频不整体下载成 Blob（大文件占内存），直接用带媒体令牌的 URL，
+    // 服务端 sendFile 支持 Range，可拖动进度条；URL 不可回收，只清理 Blob
+    if (img.type === 'video') {
+      if (displayedUrlRef.current) {
+        URL.revokeObjectURL(displayedUrlRef.current);
+        displayedUrlRef.current = null;
+      }
+      setImage(img);
+      setImageUrl(getImageUrlWithAuth(img.id));
+      return;
+    }
     const blob = await imageApi.getById(img.id);
     const url = URL.createObjectURL(blob);
     if (displayedUrlRef.current) URL.revokeObjectURL(displayedUrlRef.current);
@@ -52,7 +63,7 @@ export default function ImagePreview() {
       try {
         // 元数据接口反查所属相册，只需两个请求即可定位浏览上下文
         const meta = await imageApi.getMeta(imageId);
-        const siblings = await imageApi.getByAlbum(meta.albumId);
+        const siblings = (await imageApi.getByAlbum(meta.albumId)).items;
         const ordered = [...siblings].sort((a, b) =>
           new Date(a.createdAt).getTime() - new Date(b.createdAt).getTime()
         );
@@ -128,7 +139,7 @@ export default function ImagePreview() {
   if (error) {
     return (
       <div className="fixed inset-0 bg-black flex flex-col items-center justify-center gap-4 text-white/60">
-        <p>图片不存在或已被删除</p>
+        <p>文件不存在或已被删除</p>
         <button
           onClick={exit}
           className="px-4 py-2 bg-white/10 hover:bg-white/20 rounded-lg text-white transition-colors"
@@ -147,18 +158,31 @@ export default function ImagePreview() {
     );
   }
 
+  const isVideo = image.type === 'video';
+
   return (
     <div className="fixed inset-0 bg-black">
-      {/* Image */}
+      {/* Media */}
       <div className="w-full h-full flex items-center justify-center overflow-hidden">
-        <img
-          src={imageUrl}
-          alt={image.name}
-          className="max-w-full max-h-full object-contain transition-transform duration-200"
-          style={{
-            transform: `scale(${scale}) rotate(${rotation}deg)`,
-          }}
-        />
+        {isVideo ? (
+          <video
+            key={imageUrl}
+            src={imageUrl}
+            controls
+            playsInline
+            autoPlay
+            className="max-w-full max-h-full"
+          />
+        ) : (
+          <img
+            src={imageUrl}
+            alt={image.name}
+            className="max-w-full max-h-full object-contain transition-transform duration-200"
+            style={{
+              transform: `scale(${scale}) rotate(${rotation}deg)`,
+            }}
+          />
+        )}
       </div>
 
       {/* Controls */}
@@ -176,22 +200,26 @@ export default function ImagePreview() {
           </button>
         </div>
 
-        {/* Bottom bar */}
+        {/* Bottom bar（缩放/旋转仅对图片有意义，视频隐藏） */}
         <div className="pointer-events-auto absolute bottom-0 left-0 right-0 p-4">
           <div className="flex items-center justify-center gap-4">
-            <button onClick={zoomOut} className="p-3 rounded-full bg-white/10 hover:bg-white/20 text-white transition-colors">
-              <ZoomOut size={20} />
-            </button>
-            <button onClick={resetZoom} className="px-4 py-3 rounded-full bg-white/10 hover:bg-white/20 text-white text-sm transition-colors">
-              {Math.round(scale * 100)}%
-            </button>
-            <button onClick={zoomIn} className="p-3 rounded-full bg-white/10 hover:bg-white/20 text-white transition-colors">
-              <ZoomIn size={20} />
-            </button>
-            <div className="w-px h-8 bg-white/20 mx-2" />
-            <button onClick={rotate} className="p-3 rounded-full bg-white/10 hover:bg-white/20 text-white transition-colors">
-              <RotateCw size={20} />
-            </button>
+            {!isVideo && (
+              <>
+                <button onClick={zoomOut} className="p-3 rounded-full bg-white/10 hover:bg-white/20 text-white transition-colors">
+                  <ZoomOut size={20} />
+                </button>
+                <button onClick={resetZoom} className="px-4 py-3 rounded-full bg-white/10 hover:bg-white/20 text-white text-sm transition-colors">
+                  {Math.round(scale * 100)}%
+                </button>
+                <button onClick={zoomIn} className="p-3 rounded-full bg-white/10 hover:bg-white/20 text-white transition-colors">
+                  <ZoomIn size={20} />
+                </button>
+                <div className="w-px h-8 bg-white/20 mx-2" />
+                <button onClick={rotate} className="p-3 rounded-full bg-white/10 hover:bg-white/20 text-white transition-colors">
+                  <RotateCw size={20} />
+                </button>
+              </>
+            )}
             <button onClick={handleDownload} className="p-3 rounded-full bg-white/10 hover:bg-white/20 text-white transition-colors">
               <Download size={20} />
             </button>

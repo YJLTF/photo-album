@@ -1,3 +1,5 @@
+import { extractVideoMeta } from "@/lib/videoPoster";
+
 const API_BASE = import.meta.env.VITE_API_URL || "/api";
 
 // —— 媒体令牌：短期签名，仅用于图片 URL，避免完整 JWT 进入访问日志 / 浏览器历史 ——
@@ -139,10 +141,13 @@ export const albumApi = {
 };
 
 export const imageApi = {
-  getByAlbum: (albumId: string): Promise<ImageItem[]> =>
-    request(`/images/album/${albumId}`),
+  // 分页可选：传 page+limit 返回一页；不传则一次拉全量（标签页、预览页需要完整列表）
+  getByAlbum: (albumId: string, page?: number, limit?: number): Promise<Paged<ImageItem>> => {
+    const query = page && limit ? `?page=${page}&limit=${limit}` : "";
+    return request(`/images/album/${albumId}${query}`);
+  },
 
-  getAll: (): Promise<ImageItem[]> => request("/images"),
+  getAll: (): Promise<Paged<ImageItem>> => request("/images"),
 
   getRecent: (limit = 8): Promise<ImageItem[]> => request(`/images/recent?limit=${limit}`),
 
@@ -158,17 +163,39 @@ export const imageApi = {
     });
   },
 
-  // 用 XMLHttpRequest 以获得真实的上传进度回调（fetch 不支持上传进度）
+  // 用 XMLHttpRequest 以获得真实的上传进度回调（fetch 不支持上传进度）。
+  // 视频走独立字段，并在上传前用浏览器截取封面帧（服务端没有 ffmpeg）
   upload: (
     albumId: string,
     file: File,
     onProgress?: (percent: number) => void
   ): Promise<ImageItem> =>
     new Promise((resolve, reject) => {
+      const isVideo = file.type.startsWith("video/");
       const token = getToken();
       const formData = new FormData();
       formData.append("albumId", albumId);
-      formData.append("image", file);
+
+      const appendFile = () => {
+        formData.append(isVideo ? "video" : "image", file);
+        xhr.send(formData);
+      };
+
+      const startUpload = () => {
+        if (isVideo) {
+          extractVideoMeta(file)
+            .then(({ poster, posterExt, width, height, duration }) => {
+              if (poster) formData.append("poster", poster, `poster${posterExt}`);
+              formData.append("width", String(width));
+              formData.append("height", String(height));
+              formData.append("duration", String(duration));
+              appendFile();
+            })
+            .catch(() => appendFile());
+        } else {
+          appendFile();
+        }
+      };
 
       const xhr = new XMLHttpRequest();
       xhr.open("POST", `${API_BASE}/images`);
@@ -196,7 +223,7 @@ export const imageApi = {
         }
       };
       xhr.onerror = () => reject(new Error("网络错误，上传失败"));
-      xhr.send(formData);
+      startUpload();
     }),
 
   delete: (id: string): Promise<{ message: string }> =>
@@ -297,6 +324,7 @@ export interface RecycleBinItem {
   id: string;
   name: string;
   deletedAt: string;
+  autoPurgeAt?: string | null;
 }
 
 export interface RecycleBinAlbum extends RecycleBinItem {
@@ -306,9 +334,12 @@ export interface RecycleBinAlbum extends RecycleBinItem {
 export interface RecycleBinImage extends RecycleBinItem {
   albumId: string;
   albumName: string;
+  type?: "image" | "video";
 }
 
 export interface RecycleBinData {
+  // true 表示服务端关闭了到期自动清理（RECYCLE_RETENTION_DAYS <= 0）
+  autoPurgeDisabled?: boolean;
   albums: RecycleBinAlbum[];
   images: RecycleBinImage[];
 }
@@ -351,8 +382,19 @@ export interface ImageItem {
   width: number;
   height: number;
   mimeType: string;
+  type?: "image" | "video";
+  duration?: number | null;
   deletedAt?: string | null;
   createdAt: string;
+}
+
+// 列表接口的分页信封；不传分页参数时 limit 等于 total、totalPages 恒为 1
+export interface Paged<T> {
+  items: T[];
+  total: number;
+  page: number;
+  limit: number;
+  totalPages: number;
 }
 
 export interface Tag {

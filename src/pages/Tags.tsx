@@ -5,6 +5,7 @@ import { tagApi, imageApi, getThumbnailUrlWithAuth, type Tag, type ImageItem, ty
 import { TAG_COLORS } from "@/lib/constants";
 import { filterImages } from "@/lib/imageFilter";
 import Modal from "@/components/Modal";
+import VideoBadge from "@/components/VideoBadge";
 
 export default function Tags() {
   const navigate = useNavigate();
@@ -28,7 +29,7 @@ export default function Tags() {
         tagApi.getImageMap(),
       ]);
       setTags(tagsData);
-      setImages(allImages);
+      setImages(allImages.items);
       setImageTagMap(imageMap);
     } catch (error) {
       console.error("Failed to fetch data:", error);
@@ -175,7 +176,7 @@ export default function Tags() {
                 <div
                   key={image.id}
                   onClick={() => navigate(`/preview/${image.id}`)}
-                  className="aspect-square rounded-lg overflow-hidden cursor-pointer group"
+                  className="relative aspect-square rounded-lg overflow-hidden cursor-pointer group"
                 >
                   <img
                     src={getThumbnailUrlWithAuth(image.id)}
@@ -184,6 +185,7 @@ export default function Tags() {
                     loading="lazy"
                     decoding="async"
                   />
+                  {image.type === "video" && <VideoBadge />}
                 </div>
               ))}
             </div>

@@ -18,6 +18,7 @@ import imageRoutes from "./routes/images";
 import tagRoutes from "./routes/tags";
 import slideshowRoutes from "./routes/slideshows";
 import recycleBinRoutes from "./routes/recycleBin";
+import { getRetentionDays, isAutoPurgeEnabled, purgeExpiredRecycleItems } from "./purgeService";
 
 const app = express();
 const PORT = process.env.PORT || 3001;
@@ -96,6 +97,25 @@ const initialize = async () => {
     app.listen(PORT, () => {
       console.log(`Server running on port ${PORT}`);
     });
+
+    // 回收站过期清理：启动后稍等片刻跑一次，之后每小时检查一次（保留期 RECYCLE_RETENTION_DAYS，默认 30 天）
+    if (isAutoPurgeEnabled()) {
+      const runPurge = async () => {
+        try {
+          const { albums, images } = await purgeExpiredRecycleItems();
+          if (albums > 0 || images > 0) {
+            console.log(`Recycle bin auto-purge: permanently removed ${albums} album(s), ${images} image(s)`);
+          }
+        } catch (error) {
+          console.error("Recycle bin auto-purge failed:", error);
+        }
+      };
+      setTimeout(runPurge, 15_000);
+      setInterval(runPurge, 60 * 60 * 1000).unref();
+      console.log(`Recycle bin auto-purge enabled (retention ${getRetentionDays()} day(s))`);
+    } else {
+      console.log("Recycle bin auto-purge disabled (RECYCLE_RETENTION_DAYS <= 0)");
+    }
   } catch (error) {
     console.error("Failed to initialize server:", error);
     process.exit(1);

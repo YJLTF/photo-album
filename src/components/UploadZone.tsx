@@ -17,13 +17,15 @@ export default function UploadZone({ onUpload, albumId, compact }: UploadZonePro
 
   const handleFiles = useCallback(
     async (files: FileList) => {
-      const imageFiles = Array.from(files).filter((f) => f.type.startsWith("image/"));
-      if (imageFiles.length === 0) return;
+      const mediaFiles = Array.from(files).filter(
+        (f) => f.type.startsWith("image/") || f.type.startsWith("video/")
+      );
+      if (mediaFiles.length === 0) return;
 
-      setProgress(Object.fromEntries(imageFiles.map((f) => [f.name, 1])));
+      setProgress(Object.fromEntries(mediaFiles.map((f) => [f.name, 1])));
 
       const dt = new DataTransfer();
-      imageFiles.forEach((f) => dt.items.add(f));
+      mediaFiles.forEach((f) => dt.items.add(f));
 
       try {
         // 上传进度由父组件通过回调回传（见 imageApi.upload 的 XHR 实现）
@@ -102,9 +104,11 @@ export default function UploadZone({ onUpload, albumId, compact }: UploadZonePro
         </div>
         <div className="text-center">
           <p className="text-[#F5F0EB] text-sm font-medium" style={{ fontFamily: "'DM Sans', sans-serif" }}>
-            {dragOver ? "释放以上传图片" : "点击或拖拽图片到此处"}
+            {dragOver ? "释放以上传" : "点击或拖拽图片、视频到此处"}
           </p>
-          <p className="text-[#F5F0EB]/40 text-xs mt-1">支持 JPG、PNG、GIF、WebP 等格式，单张最大 20MB</p>
+          <p className="text-[#F5F0EB]/40 text-xs mt-1">
+            支持 JPG、PNG、GIF、WebP 与 MP4、WebM、MOV 等格式，图片最大 20MB，视频最大 500MB
+          </p>
         </div>
         {albumId && (
           <span className="absolute top-3 left-3 text-xs text-[#E8845C]/60 bg-[#E8845C]/10 px-2 py-0.5 rounded-full">
@@ -114,7 +118,7 @@ export default function UploadZone({ onUpload, albumId, compact }: UploadZonePro
         <input
           ref={inputRef}
           type="file"
-          accept="image/*"
+          accept="image/*,video/*"
           multiple
           className="hidden"
           onChange={handleChange}

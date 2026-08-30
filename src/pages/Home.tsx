@@ -18,6 +18,7 @@ import AlbumCard from "@/components/AlbumCard";
 import UploadZone from "@/components/UploadZone";
 import TagPill from "@/components/TagPill";
 import SlideshowCard from "@/components/SlideshowCard";
+import VideoBadge from "@/components/VideoBadge";
 import Modal from "@/components/Modal";
 import { toast } from "@/lib/toastStore";
 
@@ -289,7 +290,7 @@ export default function Home() {
                 <div
                   key={image.id}
                   onClick={() => navigate(`/preview/${image.id}`)}
-                  className="aspect-square rounded-lg overflow-hidden cursor-pointer group"
+                  className="relative aspect-square rounded-lg overflow-hidden cursor-pointer group"
                 >
                   <img
                     src={getThumbnailUrlWithAuth(image.id)}
@@ -298,6 +299,7 @@ export default function Home() {
                     loading="lazy"
                     decoding="async"
                   />
+                  {image.type === "video" && <VideoBadge />}
                 </div>
               ))}
             </div>
