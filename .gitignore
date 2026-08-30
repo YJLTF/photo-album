@@ -34,6 +34,10 @@ Thumbs.db
 .cache/
 *.tsbuildinfo
 
+# Deploy
+deploy-out/
+.deploy.env
+
 # Database (IndexedDB - stored in browser)
 *.db
 

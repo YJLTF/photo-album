@@ -1,0 +1,3 @@
+# Git Bash / Linux 下执行的脚本必须保持 LF，否则远端 heredoc 与 bash 会因 \r 报错
+*.sh text eol=lf
+.deploy.env.example text eol=lf
