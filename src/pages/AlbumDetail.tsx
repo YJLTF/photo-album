@@ -5,6 +5,7 @@ import { albumApi, imageApi, tagApi, getThumbnailUrlWithAuth, type Album, type I
 import ImageCard from "@/components/ImageCard";
 import UploadZone from "@/components/UploadZone";
 import Modal from "@/components/Modal";
+import { toast } from "@/lib/toastStore";
 
 export default function AlbumDetail() {
   const { albumId } = useParams();
@@ -61,15 +62,20 @@ export default function AlbumDetail() {
     onFileProgress?: (fileName: string, percent: number) => void
   ) => {
     if (!albumId) return;
-    for (let i = 0; i < files.length; i++) {
-      const file = files[i];
-      await imageApi.upload(albumId, file, percent => onFileProgress?.(file.name, percent));
+    try {
+      for (let i = 0; i < files.length; i++) {
+        const file = files[i];
+        await imageApi.upload(albumId, file, percent => onFileProgress?.(file.name, percent));
+      }
+      toast.success(`已上传 ${files.length} 张照片`);
+      fetchData();
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : "上传失败");
     }
-    fetchData();
   }, [albumId, fetchData]);
 
   const handleDeleteImage = useCallback(async (id: string) => {
-    if (!confirm("确定要删除这张照片吗？")) return;
+    if (!confirm("确定要删除这张照片吗？删除后可在回收站恢复。")) return;
 
     await imageApi.delete(id);
 
@@ -83,12 +89,13 @@ export default function AlbumDetail() {
       }
     }
 
+    toast.success("照片已移入回收站");
     fetchData();
   }, [album?.coverImageId, images, albumId, fetchData]);
 
   const handleBatchDelete = useCallback(async () => {
     const ids = Array.from(selectedImages);
-    if (!confirm(`确定要删除选中的 ${ids.length} 张照片吗？`)) return;
+    if (!confirm(`确定要删除选中的 ${ids.length} 张照片吗？删除后可在回收站恢复。`)) return;
 
     // 检查是否删除封面图片
     const coverImageId = album?.coverImageId;
@@ -110,6 +117,7 @@ export default function AlbumDetail() {
     }
 
     setSelectedImages(new Set());
+    toast.success(`已将 ${ids.length} 张照片移入回收站`);
     fetchData();
   }, [selectedImages, album?.coverImageId, images, albumId, fetchData]);
 
@@ -117,6 +125,7 @@ export default function AlbumDetail() {
     if (!selectedImageId || !newTagId) return;
     try {
       await tagApi.addToImage(selectedImageId, newTagId);
+      toast.success("标签已添加");
     } catch {
       // 忽略重复添加的错误
     }
@@ -150,6 +159,7 @@ export default function AlbumDetail() {
       }
     }));
 
+    toast.success(`已为 ${ids.length} 张照片添加标签`);
     fetchData();
   }, [newTagId, selectedImages, tags, fetchData]);
 

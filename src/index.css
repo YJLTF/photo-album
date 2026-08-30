@@ -52,6 +52,12 @@ h1, h2, h3, h4, h5, h6 {
   to { opacity: 1; }
 }
 
+/* Toast 动画 */
+@keyframes toast-in {
+  from { opacity: 0; transform: translateY(12px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+
 /* 转场效果预览动画（TransitionPreview 使用） */
 @keyframes fadeIn { from { opacity: 0; } to { opacity: 1; } }
 @keyframes fadeOut { from { opacity: 1; } to { opacity: 0; } }

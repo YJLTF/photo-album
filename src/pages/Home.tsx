@@ -19,6 +19,7 @@ import UploadZone from "@/components/UploadZone";
 import TagPill from "@/components/TagPill";
 import SlideshowCard from "@/components/SlideshowCard";
 import Modal from "@/components/Modal";
+import { toast } from "@/lib/toastStore";
 
 export default function Home() {
   const navigate = useNavigate();
@@ -65,6 +66,7 @@ export default function Home() {
     await albumApi.create(name);
     setNewAlbumName("");
     setShowCreateModal(false);
+    toast.success("相册已创建");
     fetchData();
   }, [newAlbumName, fetchData]);
 
@@ -73,13 +75,15 @@ export default function Home() {
     await albumApi.update(editingAlbum.id, { name: editName.trim() });
     setEditingAlbum(null);
     setEditName("");
+    toast.success("相册名称已更新");
     fetchData();
   }, [editingAlbum, editName, fetchData]);
 
   const handleDeleteAlbum = useCallback(async (id: string) => {
     const album = albums.find(a => a.id === id);
-    if (!confirm(`确定要删除相册「${album?.name ?? ""}」吗？其中的 ${album?.imageCount ?? 0} 张图片将被永久删除。`)) return;
+    if (!confirm(`确定要删除相册「${album?.name ?? ""}」吗？其中的 ${album?.imageCount ?? 0} 张图片将一并移入回收站。`)) return;
     await albumApi.delete(id);
+    toast.success("相册已移入回收站，可在回收站中恢复");
     fetchData();
   }, [albums, fetchData]);
 
@@ -88,28 +92,39 @@ export default function Home() {
     onFileProgress?: (fileName: string, percent: number) => void
   ) => {
     if (!selectedAlbumId) return;
-    for (let i = 0; i < files.length; i++) {
-      const file = files[i];
-      await imageApi.upload(selectedAlbumId, file, percent => onFileProgress?.(file.name, percent));
+    try {
+      for (let i = 0; i < files.length; i++) {
+        const file = files[i];
+        await imageApi.upload(selectedAlbumId, file, percent => onFileProgress?.(file.name, percent));
+      }
+      toast.success(`已上传 ${files.length} 张照片`);
+      fetchData();
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : "上传失败");
     }
-    fetchData();
   }, [selectedAlbumId, fetchData]);
 
   const handleCreateTag = useCallback(async () => {
     const name = newTagName.trim();
     if (!name) return;
-    const color = TAG_COLORS[tags.length % TAG_COLORS.length];
-    await tagApi.create(name, color);
-    setNewTagName("");
-    setShowTagModal(false);
-    fetchData();
-    window.dispatchEvent(new Event('tagCreated'));
+    try {
+      const color = TAG_COLORS[tags.length % TAG_COLORS.length];
+      await tagApi.create(name, color);
+      setNewTagName("");
+      setShowTagModal(false);
+      toast.success("标签已创建");
+      fetchData();
+      window.dispatchEvent(new Event('tagCreated'));
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : "创建失败");
+    }
   }, [newTagName, tags.length, fetchData]);
 
   const handleDeleteTag = useCallback(async (id: string) => {
     const tag = tags.find(t => t.id === id);
     if (!confirm(`确定要删除标签「${tag?.name ?? ""}」吗？`)) return;
     await tagApi.delete(id);
+    toast.success("标签已删除");
     fetchData();
     window.dispatchEvent(new Event('tagDeleted'));
   }, [tags, fetchData]);
@@ -118,6 +133,7 @@ export default function Home() {
     const slideshow = slideshows.find(s => s.id === id);
     if (!confirm(`确定要删除轮播「${slideshow?.name ?? ""}」吗？`)) return;
     await slideshowApi.delete(id);
+    toast.success("轮播已删除");
     fetchData();
   }, [slideshows, fetchData]);
 

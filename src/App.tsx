@@ -8,7 +8,9 @@ import SlideshowEdit from "@/pages/SlideshowEdit";
 import SlideshowPlay from "@/pages/SlideshowPlay";
 import Tags from "@/pages/Tags";
 import AccessKeys from "@/pages/AccessKeys";
+import RecycleBin from "@/pages/RecycleBin";
 import Login from "@/pages/Login";
+import { ToastHost } from "@/components/Toast";
 import { authApi, ensureMediaToken, type PermissionLevel } from "@/lib/api";
 
 export default function App() {
@@ -62,6 +64,7 @@ export default function App() {
 
   return (
     <Router>
+      <ToastHost />
       <Routes>
         {/* Login page */}
         <Route
@@ -82,6 +85,7 @@ export default function App() {
               <Route path="/tags" element={<Tags />} />
               <Route path="/slideshow/edit" element={<SlideshowEdit />} />
               <Route path="/admin/keys" element={<AccessKeys />} />
+              <Route path="/recycle" element={<RecycleBin />} />
             </Route>
           </>
         )}

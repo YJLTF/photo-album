@@ -15,6 +15,7 @@ export default function Layout({ permission, onLogout }: LayoutProps) {
     if (location.pathname.startsWith("/slideshow")) return "slideshows";
     if (location.pathname.startsWith("/tags")) return "tags";
     if (location.pathname.startsWith("/admin")) return "access-keys";
+    if (location.pathname.startsWith("/recycle")) return "recycle";
     if (location.pathname.startsWith("/album")) return "albums";
     return "albums";
   };
@@ -33,6 +34,9 @@ export default function Layout({ permission, onLogout }: LayoutProps) {
         break;
       case "access-keys":
         navigate("/admin/keys");
+        break;
+      case "recycle":
+        navigate("/recycle");
         break;
     }
   };

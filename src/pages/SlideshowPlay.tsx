@@ -2,6 +2,7 @@ import { useState, useEffect, useCallback, useRef } from 'react';
 import { useSearchParams, useNavigate } from 'react-router-dom';
 import { ChevronLeft, ChevronRight, RotateCcw } from 'lucide-react';
 import { slideshowApi, imageApi, type SlideshowWithImages, type SlideshowImageItem } from '@/lib/api';
+import { getOverlayPositionStyle } from '@/lib/overlayPosition';
 
 interface PlayableSlide {
   id: string;
@@ -197,20 +198,6 @@ export default function SlideshowPlay() {
     }
   };
 
-  // 文字位置 -> 样式属性的映射，替代原来层层嵌套的三元表达式
-  const getPositionStyle = (position: string): React.CSSProperties => {
-    const vertical = position.startsWith('top') ? 'top' : position.startsWith('bottom') ? 'bottom' : 'top';
-    const horizontal = position.endsWith('left') ? 'left' : position.endsWith('right') ? 'right' : 'center';
-    const style: React.CSSProperties = { [vertical]: '20px' };
-    if (horizontal === 'center') {
-      style.left = '50%';
-      style.transform = 'translateX(-50%)';
-    } else {
-      style[horizontal] = '20px';
-    }
-    return style;
-  };
-
   const togglePlay = () => {
     setIsPlaying(!isPlaying);
   };
@@ -273,7 +260,7 @@ export default function SlideshowPlay() {
           <div
             className={`absolute text-white transition-all duration-300 ${transitionClass}`}
             style={{
-              ...getPositionStyle(slideData.textPosition),
+              ...getOverlayPositionStyle(slideData.textPosition),
               color: slideData.textColor,
               fontSize: `${slideData.textSize}px`,
               textShadow: '0 2px 10px rgba(0,0,0,0.5)',

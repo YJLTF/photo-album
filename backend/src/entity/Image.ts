@@ -28,6 +28,10 @@ export class Image {
   @Column()
   mimeType: string;
 
+  // 回收站：非 NULL 表示已软删除（恢复可还原，彻底删除时才清理物理文件）
+  @Column({ type: "datetime", nullable: true })
+  deletedAt: Date | null;
+
   @CreateDateColumn()
   createdAt: Date;
 

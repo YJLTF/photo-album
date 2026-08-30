@@ -16,10 +16,15 @@
 - **自动封面**：新建相册后上传的第一张图片会被自动设为封面
 
 ### 🖼️ 图片管理
-- 拖拽或点击上传（支持批量）
-- 网格展示
+- 拖拽或点击上传（支持批量，真实上传进度）
+- 网格展示（服务端 WebP 缩略图，按需生成并缓存）
 - 全屏预览（缩放、左右切换）
 - 单张 / 批量删除（删除封面图时自动顺延到剩余的第一张）
+
+### 🗑️ 回收站
+- 删除的相册与图片为软删除，可在回收站中恢复
+- 彻底删除 / 清空回收站时才清理物理文件与轮播引用
+- 相册恢复时其中的图片一并恢复
 
 ### 🏷️ 标签管理
 - 为图片添加 / 移除标签
@@ -99,6 +104,7 @@ VITE_API_URL=http://localhost:3002/api
 | `npm run build` | 类型检查 + 生产构建（产物在 `dist/`） |
 | `npm run check` | 仅做 TypeScript 类型检查 |
 | `npm run lint` | 运行 ESLint |
+| `npm test` | 运行单元测试（vitest） |
 | `npm run preview` | 预览生产构建产物 |
 
 ### 后端
@@ -279,7 +285,7 @@ photo-album/
 | 密钥 | `/access-keys/:id` | PUT / DELETE | ADMIN | 不能禁用/删除最后一个启用的管理员密钥 |
 | 密钥 | `/access-keys/:id/key` | PATCH | ADMIN 或本人 | 修改自己的密钥后旧 token 失效，需重新登录 |
 | 相册 | `/albums` | GET / POST | GET 任意 / POST EDITOR+ | 列表每项含 `imageCount` |
-| 相册 | `/albums/:id` | GET / PUT / DELETE | GET 任意 / 写 EDITOR+ | 删除相册会级联清理图片文件与轮播引用 |
+| 相册 | `/albums/:id` | GET / PUT / DELETE | GET 任意 / 写 EDITOR+ | DELETE 为软删除（移入回收站） |
 | 图片 | `/images` | GET | 任意 | 全部图片（标签筛选页用） |
 | 图片 | `/images/recent?limit=8` | GET | 任意 | 最近上传 |
 | 图片 | `/images/album/:albumId` | GET | 任意 | |
@@ -287,7 +293,12 @@ photo-album/
 | 图片 | `/images/:id/thumbnail` | GET | 任意（媒体令牌可用） | 网格缩略图（WebP，首次按需生成后落盘缓存） |
 | 图片 | `/images/:id` | GET | 任意（媒体令牌可用） | 图片文件本体（带一天浏览器缓存头） |
 | 图片 | `/images` | POST | EDITOR+ | 仅图片格式，单文件 ≤ 20MB；上传时记录真实宽高并预生成缩略图 |
-| 图片 | `/images/:id` | DELETE | EDITOR+ | 同时清理物理文件与轮播引用 |
+| 图片 | `/images/:id` | DELETE | EDITOR+ | 软删除（移入回收站） |
+| 回收站 | `/recycle-bin` | GET / DELETE | EDITOR+ | DELETE 为清空回收站 |
+| 回收站 | `/recycle-bin/albums/:id` | DELETE | EDITOR+ | 彻底删除相册及图片文件 |
+| 回收站 | `/recycle-bin/albums/:id/restore` | POST | EDITOR+ | 恢复相册（图片一并恢复） |
+| 回收站 | `/recycle-bin/images/:id` | DELETE | EDITOR+ | 彻底删除单张图片 |
+| 回收站 | `/recycle-bin/images/:id/restore` | POST | EDITOR+ | 恢复图片 |
 | 标签 | `/tags` | GET / POST | GET 任意 / POST EDITOR+ | |
 | 标签 | `/tags/image-map` | GET | 任意 | 全量 imageId → 标签列表映射 |
 | 标签 | `/tags/album/:albumId` | GET | 任意 | 相册内 imageId → 标签列表映射 |
@@ -317,8 +328,8 @@ photo-album/
 后端在以下场景自动维护数据一致性，**不需要客户端介入**：
 
 - 上传图片时：若相册无封面且这是首张图，自动设为封面
-- 删除图片时：同时删除磁盘上的物理文件，并清理引用该图的轮播条目
-- 删除相册时：批量删除相册内所有图片记录与物理文件，并清理轮播引用
+- 删除图片 / 相册时：软删除（移入回收站），物理文件保留可恢复
+- 彻底删除（回收站中删除或清空）时：清理磁盘文件、缩略图，并清理引用该图的轮播条目
 - 删除标签时：清理所有图片与该标签的关联
 - （客户端在删除封面图时同样会处理封面顺延 / 清空）
 

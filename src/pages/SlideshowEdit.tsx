@@ -4,6 +4,7 @@ import { Play, Save, Trash2, ChevronUp, ChevronDown, Image as ImageIcon } from '
 import { albumApi, imageApi, slideshowApi, getThumbnailUrlWithAuth, type Album, type ImageItem, type Slideshow, type TransitionEffect, type TextPosition, type PermissionLevel } from '@/lib/api';
 import { EFFECT_LABELS } from '@/lib/constants';
 import TransitionPreview from '@/components/TransitionPreview';
+import { toast } from '@/lib/toastStore';
 
 const EFFECTS: TransitionEffect[] = ['fade', 'slide', 'zoom', 'flip', 'blur'];
 const POSITIONS: TextPosition[] = ['top-left', 'top-center', 'top-right', 'center', 'bottom-left', 'bottom-center', 'bottom-right'];
@@ -168,6 +169,10 @@ export default function SlideshowEdit() {
         setExistingId(newSlideshow.id);
       }
       loadSlideshows();
+      toast.success("轮播已保存");
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : "保存失败");
+      throw error;
     } finally {
       setSaving(false);
     }

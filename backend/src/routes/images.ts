@@ -4,10 +4,10 @@ import fs from "fs";
 import path from "path";
 import crypto from "crypto";
 import sharp from "sharp";
+import { IsNull } from "typeorm";
 import { AppDataSource } from "../data-source";
 import { Image } from "../entity/Image";
 import { Album } from "../entity/Album";
-import { SlideshowImage } from "../entity/SlideshowImage";
 import { authenticate, authenticateMedia, requirePermission } from "../middleware/auth";
 import { asyncHandler } from "../middleware/asyncHandler";
 import { HttpError } from "../httpError";
@@ -48,10 +48,10 @@ const upload = multer({
   }
 });
 
-// 所有图片（供标签筛选页一次性拉取）
+// 所有图片（供标签筛选页一次性拉取；不含回收站中的图片）
 router.get("/", authenticate, asyncHandler(async (req, res) => {
   const images = await AppDataSource.getRepository(Image)
-    .find({ order: { createdAt: "DESC" } });
+    .find({ where: { deletedAt: IsNull() }, order: { createdAt: "DESC" } });
   res.json(images);
 }));
 
@@ -59,14 +59,14 @@ router.get("/", authenticate, asyncHandler(async (req, res) => {
 router.get("/recent", authenticate, asyncHandler(async (req, res) => {
   const limit = Math.min(Math.max(parseInt(String(req.query.limit)) || 8, 1), 50);
   const images = await AppDataSource.getRepository(Image)
-    .find({ order: { createdAt: "DESC" }, take: limit });
+    .find({ where: { deletedAt: IsNull() }, order: { createdAt: "DESC" }, take: limit });
   res.json(images);
 }));
 
 router.get("/album/:albumId", authenticate, asyncHandler(async (req, res) => {
   const albumId = String(req.params.albumId);
   const images = await AppDataSource.getRepository(Image)
-    .find({ where: { albumId }, order: { createdAt: "ASC" } });
+    .find({ where: { albumId, deletedAt: IsNull() }, order: { createdAt: "ASC" } });
   res.json(images);
 }));
 
@@ -200,23 +200,19 @@ router.post("/", authenticate, requirePermission("editor"), upload.single("image
   res.status(201).json(image);
 }));
 
+// 删除图片 = 软删除（移入回收站）：物理文件与缩略图保留，可在回收站恢复；
+// 轮播引用暂不清理（文件仍可读，播放不受影响），彻底删除时才一并清理
 router.delete("/:id", authenticate, requirePermission("editor"), asyncHandler(async (req, res) => {
   const id = String(req.params.id);
 
-  const image = await AppDataSource.getRepository(Image).findOne({ where: { id } });
+  const image = await AppDataSource.getRepository(Image).findOne({ where: { id, deletedAt: IsNull() } });
   if (!image) {
     throw new HttpError(404, "Image not found");
   }
 
-  // 同步清理轮播引用，避免播放时 404
-  await AppDataSource.getRepository(SlideshowImage).delete({ imageId: id });
-  await AppDataSource.getRepository(Image).delete(id);
+  await AppDataSource.getRepository(Image).update({ id }, { deletedAt: new Date() });
 
-  // 物理文件删除失败不影响接口结果（仅占用磁盘）
-  await fs.promises.unlink(path.join(STORAGE_DIR, image.filePath)).catch(() => {});
-  await fs.promises.unlink(path.join(THUMBS_DIR, thumbFileOf(image.filePath))).catch(() => {});
-
-  res.json({ message: "Image deleted" });
+  res.json({ message: "Image moved to recycle bin" });
 }));
 
 export default router;

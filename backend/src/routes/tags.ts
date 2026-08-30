@@ -1,4 +1,5 @@
 import { Router } from "express";
+import { IsNull } from "typeorm";
 import { AppDataSource } from "../data-source";
 import { Tag } from "../entity/Tag";
 import { ImageTag } from "../entity/ImageTag";
@@ -37,16 +38,16 @@ router.get("/", authenticate, asyncHandler(async (req, res) => {
   res.json(await tagRepo().find());
 }));
 
-// 全量 imageId -> 标签列表 的映射（标签筛选页一次拉齐，避免逐图请求）
+// 全量 imageId -> 标签列表 的映射（标签筛选页一次拉齐，避免逐图请求；不含回收站中的图片）
 router.get("/image-map", authenticate, asyncHandler(async (req, res) => {
-  const images = await imageRepo().find({ select: ["id"] });
+  const images = await imageRepo().find({ where: { deletedAt: IsNull() }, select: ["id"] });
   res.json(await tagsForImageIds(images.map(i => i.id)));
 }));
 
 // 指定相册内 imageId -> 标签列表 的映射
 router.get("/album/:albumId", authenticate, asyncHandler(async (req, res) => {
   const images = await imageRepo().find({
-    where: { albumId: String(req.params.albumId) },
+    where: { albumId: String(req.params.albumId), deletedAt: IsNull() },
     select: ["id"],
   });
   res.json(await tagsForImageIds(images.map(i => i.id)));

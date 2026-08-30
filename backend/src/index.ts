@@ -17,6 +17,7 @@ import albumRoutes from "./routes/albums";
 import imageRoutes from "./routes/images";
 import tagRoutes from "./routes/tags";
 import slideshowRoutes from "./routes/slideshows";
+import recycleBinRoutes from "./routes/recycleBin";
 
 const app = express();
 const PORT = process.env.PORT || 3001;
@@ -31,6 +32,7 @@ app.use("/api/albums", albumRoutes);
 app.use("/api/images", imageRoutes);
 app.use("/api/tags", tagRoutes);
 app.use("/api/slideshows", slideshowRoutes);
+app.use("/api/recycle-bin", recycleBinRoutes);
 
 app.get("/api/health", (req, res) => {
   res.json({ status: "ok" });

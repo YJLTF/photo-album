@@ -3,6 +3,7 @@ import { useNavigate } from "react-router-dom";
 import { Plus, Tag as TagIcon, X, Search } from "lucide-react";
 import { tagApi, imageApi, getThumbnailUrlWithAuth, type Tag, type ImageItem, type PermissionLevel } from "@/lib/api";
 import { TAG_COLORS } from "@/lib/constants";
+import { filterImages } from "@/lib/imageFilter";
 import Modal from "@/components/Modal";
 
 export default function Tags() {
@@ -38,19 +39,14 @@ export default function Tags() {
     fetchData();
   }, [fetchData]);
 
-  // 纯同步过滤：选中的标签取交集，搜索按文件名匹配（不再逐图发请求）
+  // 纯同步过滤（逻辑在 lib/imageFilter，便于测试）：选中的标签取交集，搜索按文件名匹配
   useEffect(() => {
-    const query = searchQuery.trim().toLowerCase();
-    const selected = Array.from(selectedTags);
-
-    const filtered = images.filter(img => {
-      if (query && !img.name.toLowerCase().includes(query)) return false;
-      if (selected.length === 0) return true;
-      const imgTags = imageTagMap[img.id] ?? [];
-      return selected.every(tagId => imgTags.some(t => t.id === tagId));
-    });
-
-    setFilteredImages(filtered);
+    setFilteredImages(
+      filterImages(images, imageTagMap, {
+        query: searchQuery,
+        selectedTagIds: Array.from(selectedTags),
+      })
+    );
   }, [images, imageTagMap, selectedTags, searchQuery]);
 
   const handleCreateTag = useCallback(async () => {

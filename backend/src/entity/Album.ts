@@ -12,6 +12,10 @@ export class Album {
   @Column({ nullable: true })
   coverImageId: string;
 
+  // 回收站：非 NULL 表示已软删除（相册删除时其中的图片一并软删除）
+  @Column({ type: "datetime", nullable: true })
+  deletedAt: Date | null;
+
   @CreateDateColumn()
   createdAt: Date;
 

@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { Images, Tags, Play, ChevronLeft, ChevronRight, LogOut, Key, Camera } from "lucide-react";
+import { Images, Tags, Play, ChevronLeft, ChevronRight, LogOut, Key, Camera, Trash2 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import type { PermissionLevel } from "@/lib/api";
 import { PERMISSION_LABELS, PERMISSION_TEXT_COLORS } from "@/lib/constants";
@@ -15,6 +15,8 @@ const navItems: NavItem[] = [
   { key: "albums", label: "相册", icon: <Images size={20} /> },
   { key: "tags", label: "标签", icon: <Tags size={20} /> },
   { key: "slideshows", label: "轮播", icon: <Play size={20} /> },
+  // 回收站只有能执行删除的编辑者以上权限可见
+  { key: "recycle", label: "回收站", icon: <Trash2 size={20} />, requiredPermission: "editor" },
 ];
 
 const adminNavItems: NavItem[] = [

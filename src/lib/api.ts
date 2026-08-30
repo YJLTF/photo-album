@@ -292,11 +292,52 @@ export const accessKeyApi = {
     }),
 };
 
+// —— 回收站 ——
+export interface RecycleBinItem {
+  id: string;
+  name: string;
+  deletedAt: string;
+}
+
+export interface RecycleBinAlbum extends RecycleBinItem {
+  imageCount: number;
+}
+
+export interface RecycleBinImage extends RecycleBinItem {
+  albumId: string;
+  albumName: string;
+}
+
+export interface RecycleBinData {
+  albums: RecycleBinAlbum[];
+  images: RecycleBinImage[];
+}
+
+export const recycleApi = {
+  getBin: (): Promise<RecycleBinData> => request("/recycle-bin"),
+
+  restoreAlbum: (id: string): Promise<{ message: string }> =>
+    request(`/recycle-bin/albums/${id}/restore`, { method: "POST" }),
+
+  restoreImage: (id: string): Promise<{ message: string }> =>
+    request(`/recycle-bin/images/${id}/restore`, { method: "POST" }),
+
+  purgeAlbum: (id: string): Promise<{ message: string }> =>
+    request(`/recycle-bin/albums/${id}`, { method: "DELETE" }),
+
+  purgeImage: (id: string): Promise<{ message: string }> =>
+    request(`/recycle-bin/images/${id}`, { method: "DELETE" }),
+
+  empty: (): Promise<{ message: string }> =>
+    request("/recycle-bin", { method: "DELETE" }),
+};
+
 export interface Album {
   id: string;
   name: string;
   coverImageId: string | null;
   imageCount?: number;
+  deletedAt?: string | null;
   createdAt: string;
   updatedAt: string;
 }
@@ -310,6 +351,7 @@ export interface ImageItem {
   width: number;
   height: number;
   mimeType: string;
+  deletedAt?: string | null;
   createdAt: string;
 }
 

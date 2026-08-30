@@ -3,6 +3,7 @@ import { Plus, Key, Trash2, Edit2, Copy, Check } from "lucide-react";
 import { accessKeyApi, type AccessKey, type PermissionLevel } from "@/lib/api";
 import { PERMISSION_LABELS, PERMISSION_BADGE_COLORS } from "@/lib/constants";
 import Modal from "@/components/Modal";
+import { toast } from "@/lib/toastStore";
 
 const extractMessage = (error: unknown, fallback: string): string => {
   if (error instanceof Error && error.message) return error.message;
@@ -64,6 +65,7 @@ export default function AccessKeys() {
       setNewKey("");
       setNewPermission("viewer");
       setNewDescription("");
+      toast.success("密钥已创建");
       loadKeys();
     } catch (error) {
       console.error("Failed to create access key:", error);
@@ -96,6 +98,7 @@ export default function AccessKeys() {
       await accessKeyApi.delete(id);
 
       if (keyToDelete && !forceLogoutIfCurrentKey(keyToDelete)) {
+        toast.success("密钥已删除");
         loadKeys();
       }
     } catch (error) {
@@ -113,6 +116,7 @@ export default function AccessKeys() {
       if (key.active && !forceLogoutIfCurrentKey(key)) {
         loadKeys();
       }
+      toast.success(key.active ? "密钥已禁用" : "密钥已启用");
     } catch (error) {
       console.error("Failed to toggle access key:", error);
     }
