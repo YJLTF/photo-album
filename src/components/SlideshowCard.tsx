@@ -3,8 +3,8 @@ import { Play, Pencil, Trash2 } from "lucide-react";
 interface SlideshowCardProps {
   slideshow: { id: string; name: string; imageCount: number; transitionEffect?: string };
   onPlay: () => void;
-  onEdit: () => void;
-  onDelete: () => void;
+  onEdit?: () => void;
+  onDelete?: () => void;
 }
 
 export default function SlideshowCard({ slideshow, onPlay, onEdit, onDelete }: SlideshowCardProps) {
@@ -44,24 +44,30 @@ export default function SlideshowCard({ slideshow, onPlay, onEdit, onDelete }: S
       </div>
 
       {/* Action buttons */}
-      <div className="flex items-center justify-center gap-2 mt-3 opacity-0 group-hover:opacity-100 transition-opacity duration-200">
-        <button
-          onClick={onEdit}
-          className="w-8 h-8 rounded-full bg-white/5 flex items-center justify-center text-[#F5F0EB]/50 hover:bg-[#E8845C] hover:text-white transition-colors"
-          title="编辑"
-          aria-label="编辑"
-        >
-          <Pencil size={13} />
-        </button>
-        <button
-          onClick={onDelete}
-          className="w-8 h-8 rounded-full bg-white/5 flex items-center justify-center text-[#F5F0EB]/50 hover:bg-red-500 hover:text-white transition-colors"
-          title="删除"
-          aria-label="删除"
-        >
-          <Trash2 size={13} />
-        </button>
-      </div>
+      {(onEdit || onDelete) && (
+        <div className="flex items-center justify-center gap-2 mt-3 opacity-0 group-hover:opacity-100 transition-opacity duration-200">
+          {onEdit && (
+            <button
+              onClick={onEdit}
+              className="w-8 h-8 rounded-full bg-white/5 flex items-center justify-center text-[#F5F0EB]/50 hover:bg-[#E8845C] hover:text-white transition-colors"
+              title="编辑"
+              aria-label="编辑"
+            >
+              <Pencil size={13} />
+            </button>
+          )}
+          {onDelete && (
+            <button
+              onClick={onDelete}
+              className="w-8 h-8 rounded-full bg-white/5 flex items-center justify-center text-[#F5F0EB]/50 hover:bg-red-500 hover:text-white transition-colors"
+              title="删除"
+              aria-label="删除"
+            >
+              <Trash2 size={13} />
+            </button>
+          )}
+        </div>
+      )}
     </div>
   );
 }

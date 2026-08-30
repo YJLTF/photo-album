@@ -9,7 +9,7 @@ import SlideshowPlay from "@/pages/SlideshowPlay";
 import Tags from "@/pages/Tags";
 import AccessKeys from "@/pages/AccessKeys";
 import Login from "@/pages/Login";
-import { authApi, type PermissionLevel } from "@/lib/api";
+import { authApi, ensureMediaToken, type PermissionLevel } from "@/lib/api";
 
 export default function App() {
   const [isAuthenticated, setIsAuthenticated] = useState(false);
@@ -26,6 +26,7 @@ export default function App() {
         setPermission(res.permission);
         setIsAuthenticated(true);
         setLoading(false);
+        void ensureMediaToken();
       }).catch(() => {
         localStorage.removeItem("token");
         localStorage.removeItem("permission");
@@ -41,6 +42,7 @@ export default function App() {
   const handleLogin = (_token: string, perm: PermissionLevel) => {
     setIsAuthenticated(true);
     setPermission(perm);
+    void ensureMediaToken();
   };
 
   const handleLogout = () => {

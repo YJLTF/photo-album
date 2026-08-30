@@ -2,9 +2,9 @@ import { FolderOpen, Pencil, Trash2, Image, Upload } from "lucide-react";
 
 interface AlbumCardProps {
   album: { id: string; name: string; coverUrl?: string; imageCount: number };
-  onEdit: () => void;
-  onDelete: () => void;
-  onUploadCover: () => void;
+  onEdit?: () => void;
+  onDelete?: () => void;
+  onUploadCover?: () => void;
   onClick: () => void;
 }
 
@@ -30,38 +30,49 @@ export default function AlbumCard({ album, onEdit, onDelete, onUploadCover, onCl
         )}
 
         {/* Hover overlay with action buttons */}
-        <div className="absolute inset-0 bg-black/40 opacity-0 group-hover:opacity-100 transition-opacity duration-300 flex items-center justify-center gap-3">
-          <button
-            onClick={(e) => {
-              e.stopPropagation();
-              onUploadCover();
-            }}
-            className="w-9 h-9 rounded-full bg-white/15 backdrop-blur-sm flex items-center justify-center text-[#F5F0EB] hover:bg-[#5CE8A0] hover:text-white transition-colors"
-            title="上传封面"
-          >
-            <Upload size={15} />
-          </button>
-          <button
-            onClick={(e) => {
-              e.stopPropagation();
-              onEdit();
-            }}
-            className="w-9 h-9 rounded-full bg-white/15 backdrop-blur-sm flex items-center justify-center text-[#F5F0EB] hover:bg-[#E8845C] hover:text-white transition-colors"
-            title="编辑"
-          >
-            <Pencil size={15} />
-          </button>
-          <button
-            onClick={(e) => {
-              e.stopPropagation();
-              onDelete();
-            }}
-            className="w-9 h-9 rounded-full bg-white/15 backdrop-blur-sm flex items-center justify-center text-[#F5F0EB] hover:bg-red-500 hover:text-white transition-colors"
-            title="删除"
-          >
-            <Trash2 size={15} />
-          </button>
-        </div>
+        {(onUploadCover || onEdit || onDelete) && (
+          <div className="absolute inset-0 bg-black/40 opacity-0 group-hover:opacity-100 transition-opacity duration-300 flex items-center justify-center gap-3">
+            {onUploadCover && (
+              <button
+                onClick={(e) => {
+                  e.stopPropagation();
+                  onUploadCover();
+                }}
+                className="w-9 h-9 rounded-full bg-white/15 backdrop-blur-sm flex items-center justify-center text-[#F5F0EB] hover:bg-[#5CE8A0] hover:text-white transition-colors"
+                title="上传封面"
+                aria-label="上传封面"
+              >
+                <Upload size={15} />
+              </button>
+            )}
+            {onEdit && (
+              <button
+                onClick={(e) => {
+                  e.stopPropagation();
+                  onEdit();
+                }}
+                className="w-9 h-9 rounded-full bg-white/15 backdrop-blur-sm flex items-center justify-center text-[#F5F0EB] hover:bg-[#E8845C] hover:text-white transition-colors"
+                title="编辑"
+                aria-label="编辑"
+              >
+                <Pencil size={15} />
+              </button>
+            )}
+            {onDelete && (
+              <button
+                onClick={(e) => {
+                  e.stopPropagation();
+                  onDelete();
+                }}
+                className="w-9 h-9 rounded-full bg-white/15 backdrop-blur-sm flex items-center justify-center text-[#F5F0EB] hover:bg-red-500 hover:text-white transition-colors"
+                title="删除"
+                aria-label="删除"
+              >
+                <Trash2 size={15} />
+              </button>
+            )}
+          </div>
+        )}
       </div>
 
       {/* Info */}

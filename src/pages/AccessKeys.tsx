@@ -35,13 +35,15 @@ export default function AccessKeys() {
     loadKeys();
   }, [loadKeys]);
 
-  // 修改/禁用/删除当前登录密钥后，旧 token 里的 key 已失效，需要强制重新登录
-  const forceLogoutIfCurrentKey = (keyValue: string) => {
+  // 修改/禁用/删除当前登录密钥后，旧 token 已失效，需要强制重新登录
+  const forceLogoutIfCurrentKey = (key: AccessKey) => {
     const currentToken = localStorage.getItem("token");
     if (!currentToken) return false;
     try {
       const payload = JSON.parse(atob(currentToken.split(".")[1]));
-      if (payload.key === keyValue) {
+      // 新令牌携带 kid（密钥 ID）；旧令牌回退比较 payload 里的 key 与页面展示的密钥
+      const matches = payload.kid ? payload.kid === key.id : payload.key === key.key;
+      if (matches) {
         localStorage.removeItem("token");
         localStorage.removeItem("permission");
         window.location.href = "/login";
@@ -78,7 +80,7 @@ export default function AccessKeys() {
       setEditingKey(null);
       setEditNewKey("");
 
-      if (!forceLogoutIfCurrentKey(editingKey.key)) {
+      if (!forceLogoutIfCurrentKey(editingKey)) {
         loadKeys();
       }
     } catch (error) {
@@ -93,7 +95,7 @@ export default function AccessKeys() {
       const keyToDelete = keys.find(k => k.id === id);
       await accessKeyApi.delete(id);
 
-      if (keyToDelete && !forceLogoutIfCurrentKey(keyToDelete.key)) {
+      if (keyToDelete && !forceLogoutIfCurrentKey(keyToDelete)) {
         loadKeys();
       }
     } catch (error) {
@@ -108,7 +110,7 @@ export default function AccessKeys() {
     try {
       await accessKeyApi.update(key.id, { active: !key.active });
 
-      if (key.active && !forceLogoutIfCurrentKey(key.key)) {
+      if (key.active && !forceLogoutIfCurrentKey(key)) {
         loadKeys();
       }
     } catch (error) {

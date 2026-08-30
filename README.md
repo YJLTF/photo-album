@@ -163,6 +163,7 @@ cp .deploy.env.example .deploy.env   # 填入服务器 SSH 密码（已被 .giti
 ./deploy.sh status   # 查看服务器容器 / 镜像 / 磁盘状态
 ./deploy.sh logs     # 跟随查看服务器日志（Ctrl+C 退出）
 ./deploy.sh build    # 仅本地构建镜像
+./deploy.sh backup   # 备份服务器 data/ 与 uploads/ 到本地 backups/
 ```
 
 说明：
@@ -171,6 +172,7 @@ cp .deploy.env.example .deploy.env   # 填入服务器 SSH 密码（已被 .giti
 - 服务器上的 `.env`（含 `JWT_SECRET`）由服务器自行维护，部署脚本不会覆盖；`docker-compose.yml` 每次部署同步为仓库版本。
 - 前端构建的 `VITE_API_URL` 取自**服务器** env 配置，避免把本地开发地址（localhost）打进生产镜像。
 - 健康检查未通过时不删除旧镜像，可按脚本输出的命令手动回滚。
+- `backup` 默认先停容器再打包（保证 SQLite 备份一致性，完成后自动重启）；`PAUSE_FOR_BACKUP=0` 可跳过停机。本地默认保留最近 5 份（`KEEP_BACKUPS` 可调）。
 
 ### 数据持久化
 
@@ -185,6 +187,7 @@ cp .deploy.env.example .deploy.env   # 填入服务器 SSH 密码（已被 .giti
 |------|------|------|------|
 | `PORT` | 服务监听 / 宿主机映射端口 | 否 | 后端 `3001`；docker-compose 默认 `80` |
 | `JWT_SECRET` | JWT 签名密钥 | **是** | （无默认；后端未设置时启动失败，compose 未设置时拒绝启动） |
+| `KEY_SECRET` | 访问密钥加密存储的派生密钥；不设置则复用 `JWT_SECRET` | 否 | 复用 `JWT_SECRET` |
 | `VITE_API_URL` | 前端构建时使用的 API 地址；留空则使用相对路径 `/api`（同源部署）。跨域时填完整 URL | 否 | `/api` |
 | `DATABASE_PATH` | SQLite 数据库文件路径 | 否 | `./data/photo-album.sqlite` |
 | `UPLOAD_DIR` | 上传图片存储目录 | 否 | `./uploads` |
@@ -265,11 +268,14 @@ photo-album/
 
 所有接口以 `/api` 为前缀，需在 Header 携带 `Authorization: Bearer <token>`（除登录接口外；图片文件接口也支持 `?token=` 查询参数）。
 
+> `<img>` 等标签无法携带请求头，前端会先调用 `/auth/media-token` 换取一个 **10 分钟有效的短期媒体令牌**拼进图片 URL——即使随 URL 进入访问日志或浏览器历史，泄露价值也很有限。媒体令牌只能访问图片文件与缩略图，不能调用任何数据接口。
+
 | 模块 | 路径 | 方法 | 权限 | 说明 |
 |------|------|------|------|------|
 | 认证 | `/auth/login` | POST | 公开（限流） | 同一 IP 5 分钟内最多失败 10 次 |
 | 认证 | `/auth/validate` | POST | 任意已登录 | |
-| 密钥 | `/access-keys` | GET / POST | ADMIN | |
+| 认证 | `/auth/media-token` | POST | 任意已登录 | 签发 10 分钟有效的媒体令牌，仅可用于图片 URL |
+| 密钥 | `/access-keys` | GET / POST | ADMIN | 密钥加密存储（见「安全说明」），列表返回可读密钥 |
 | 密钥 | `/access-keys/:id` | PUT / DELETE | ADMIN | 不能禁用/删除最后一个启用的管理员密钥 |
 | 密钥 | `/access-keys/:id/key` | PATCH | ADMIN 或本人 | 修改自己的密钥后旧 token 失效，需重新登录 |
 | 相册 | `/albums` | GET / POST | GET 任意 / POST EDITOR+ | 列表每项含 `imageCount` |
@@ -277,9 +283,10 @@ photo-album/
 | 图片 | `/images` | GET | 任意 | 全部图片（标签筛选页用） |
 | 图片 | `/images/recent?limit=8` | GET | 任意 | 最近上传 |
 | 图片 | `/images/album/:albumId` | GET | 任意 | |
-| 图片 | `/images/:id/meta` | GET | 任意 | 图片元数据（JSON） |
-| 图片 | `/images/:id` | GET | 任意 | 图片文件本体（带一天浏览器缓存头） |
-| 图片 | `/images` | POST | EDITOR+ | 仅图片格式，单文件 ≤ 20MB |
+| 图片 | `/images/:id/meta` | GET | 任意 | 图片元数据（JSON，含宽高） |
+| 图片 | `/images/:id/thumbnail` | GET | 任意（媒体令牌可用） | 网格缩略图（WebP，首次按需生成后落盘缓存） |
+| 图片 | `/images/:id` | GET | 任意（媒体令牌可用） | 图片文件本体（带一天浏览器缓存头） |
+| 图片 | `/images` | POST | EDITOR+ | 仅图片格式，单文件 ≤ 20MB；上传时记录真实宽高并预生成缩略图 |
 | 图片 | `/images/:id` | DELETE | EDITOR+ | 同时清理物理文件与轮播引用 |
 | 标签 | `/tags` | GET / POST | GET 任意 / POST EDITOR+ | |
 | 标签 | `/tags/image-map` | GET | 任意 | 全量 imageId → 标签列表映射 |
@@ -290,6 +297,13 @@ photo-album/
 | 标签 | `/tags/image/:imageId/:tagId` | DELETE | EDITOR+ | |
 | 轮播 | `/slideshows` | GET / POST | GET 任意 / POST EDITOR+ | 列表每项含 `imageCount` |
 | 轮播 | `/slideshows/:id` | GET / PUT / DELETE | GET 任意 / 写 EDITOR+ | |
+
+## 安全说明
+
+- **访问密钥加密存储**：数据库中 `key` 列保存 HMAC-SHA256 查找摘要、`keyEnc` 列保存 AES-256-GCM 密文——SQLite 文件单独泄露拿不到密钥明文，管理员界面仍可查看/复制（由服务端用派生密钥解密返回）。旧版明文数据在下次成功登录时自动迁移，无需手动处理。
+- **注意**：更换 `JWT_SECRET`（或 `KEY_SECRET`）会使已存储的密钥无法匹配/解密，相当于重置全部访问密钥，需要重建数据库或手动修数。
+- **图片 URL 使用短期媒体令牌**（10 分钟），完整 JWT 不再出现在 URL 中；媒体令牌只能访问图片文件，不能调用数据接口。
+- 登录接口有基于 IP 的失败限流；上传仅允许图片格式且单文件 ≤ 20MB。
 
 ## 设计风格
 

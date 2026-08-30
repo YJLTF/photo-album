@@ -10,6 +10,7 @@ import { MulterError } from "multer";
 import { HttpError } from "./httpError";
 import { AppDataSource } from "./data-source";
 import { AccessKey } from "./entity/AccessKey";
+import { lookupHash, encryptKey } from "./keyCrypto";
 import authRoutes from "./routes/auth";
 import accessKeyRoutes from "./routes/accessKeys";
 import albumRoutes from "./routes/albums";
@@ -77,11 +78,12 @@ const initialize = async () => {
     await AppDataSource.initialize();
     console.log("Database connected");
 
-    // 首次启动时创建默认管理员密钥
+    // 首次启动时创建默认管理员密钥（与其他密钥一样加密存储）
     const keyCount = await AppDataSource.getRepository(AccessKey).count();
     if (keyCount === 0) {
       const defaultKey = new AccessKey();
-      defaultKey.key = "admin123";
+      defaultKey.key = lookupHash("admin123");
+      defaultKey.keyEnc = encryptKey("admin123");
       defaultKey.permission = "admin";
       defaultKey.description = "默认管理员密钥";
       defaultKey.active = true;

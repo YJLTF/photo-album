@@ -1,6 +1,34 @@
 const API_BASE = import.meta.env.VITE_API_URL || "/api";
 
+// —— 媒体令牌：短期签名，仅用于图片 URL，避免完整 JWT 进入访问日志 / 浏览器历史 ——
+// 未取到（或刚好过期）时回退完整 token，保证首屏图片仍能加载
+let mediaToken: string | null = null;
+let mediaTokenExpireAt = 0;
+let mediaTokenTimer: number | null = null;
+
+export const ensureMediaToken = async (): Promise<void> => {
+  // 距过期不足 1 分钟时提前续期
+  if (mediaToken && Date.now() < mediaTokenExpireAt - 60_000) return;
+  try {
+    const res = await request<{ token: string; expiresIn: number }>("/auth/media-token", {
+      method: "POST",
+    });
+    mediaToken = res.token;
+    mediaTokenExpireAt = Date.now() + res.expiresIn * 1000;
+    if (mediaTokenTimer) clearTimeout(mediaTokenTimer);
+    mediaTokenTimer = window.setTimeout(() => {
+      void ensureMediaToken();
+    }, Math.max(res.expiresIn - 60, 30) * 1000);
+  } catch {
+    mediaToken = null;
+    mediaTokenExpireAt = 0;
+  }
+};
+
 const tokenQuery = () => {
+  if (mediaToken && Date.now() < mediaTokenExpireAt) {
+    return `?token=${encodeURIComponent(mediaToken)}`;
+  }
   const token = localStorage.getItem("token");
   return token ? `?token=${encodeURIComponent(token)}` : "";
 };

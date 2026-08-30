@@ -4,10 +4,15 @@ import { AccessKey, PermissionLevel, PermissionLevels } from "../entity/AccessKe
 import { authenticate, requirePermission, AuthenticatedRequest } from "../middleware/auth";
 import { asyncHandler } from "../middleware/asyncHandler";
 import { HttpError } from "../httpError";
+import { lookupHash, encryptKey, decryptKey } from "../keyCrypto";
 
 const router = Router();
 
 const repo = () => AppDataSource.getRepository(AccessKey);
+
+// 查重时同时匹配 HMAC 与历史明文，避免新旧存储混用期间产生重复密钥
+const findKeyByPlain = (plainKey: string) =>
+  repo().findOne({ where: [{ key: lookupHash(plainKey) }, { key: plainKey }] });
 
 // 防止把系统里最后一个可用的管理员密钥删掉/禁用，导致无人能管理
 const assertNotLastAdmin = async (target: AccessKey, nextActive?: boolean) => {
@@ -20,8 +25,10 @@ const assertNotLastAdmin = async (target: AccessKey, nextActive?: boolean) => {
   }
 };
 
+// 管理员列表返回可读密钥（历史明文行原样返回，新数据解密显示）；keyEnc 密文不出网
 router.get("/", authenticate, requirePermission("admin"), asyncHandler(async (req, res) => {
-  res.json(await repo().find());
+  const keys = await repo().find();
+  res.json(keys.map(({ keyEnc, ...k }) => ({ ...k, key: decryptKey(keyEnc) || k.key })));
 }));
 
 router.post("/", authenticate, requirePermission("admin"), asyncHandler(async (req, res) => {
@@ -34,19 +41,21 @@ router.post("/", authenticate, requirePermission("admin"), asyncHandler(async (r
     throw new HttpError(400, "Invalid permission level");
   }
 
-  const existing = await repo().findOne({ where: { key } });
+  const existing = await findKeyByPlain(String(key));
   if (existing) {
     throw new HttpError(409, "Key already exists");
   }
 
   const accessKey = new AccessKey();
-  accessKey.key = key;
+  accessKey.key = lookupHash(String(key));
+  accessKey.keyEnc = encryptKey(String(key));
   accessKey.permission = permission;
   accessKey.description = description;
   accessKey.active = true;
 
   await repo().save(accessKey);
-  res.status(201).json(accessKey);
+  const { keyEnc: _keyEnc, ...created } = accessKey;
+  res.status(201).json({ ...created, key: String(key) });
 }));
 
 router.put("/:id", authenticate, requirePermission("admin"), asyncHandler(async (req, res) => {
@@ -109,12 +118,13 @@ router.patch("/:id/key", authenticate, asyncHandler(async (req: AuthenticatedReq
     throw new HttpError(400, "新密钥至少需要6个字符");
   }
 
-  const existing = await repo().findOne({ where: { key: newKey } });
+  const existing = await findKeyByPlain(String(newKey));
   if (existing && existing.id !== id) {
     throw new HttpError(409, "密钥已被使用");
   }
 
-  targetKey.key = newKey;
+  targetKey.key = lookupHash(String(newKey));
+  targetKey.keyEnc = encryptKey(String(newKey));
   await repo().save(targetKey);
   res.json({ message: "密钥修改成功" });
 }));

@@ -2,8 +2,13 @@ import { Router, Request, Response, NextFunction } from "express";
 import jwt from "jsonwebtoken";
 import { AppDataSource } from "../data-source";
 import { AccessKey } from "../entity/AccessKey";
+import { authenticate } from "../middleware/auth";
 import { asyncHandler } from "../middleware/asyncHandler";
 import { HttpError } from "../httpError";
+import { lookupHash, encryptKey } from "../keyCrypto";
+
+// 媒体令牌有效期（秒）：仅够 <img> 加载图片，即便随 URL 泄露价值也有限
+const MEDIA_TOKEN_TTL_SECONDS = 600;
 
 const router = Router();
 
@@ -37,6 +42,21 @@ const clearLoginFailures = (req: Request) => {
   loginFailures.delete(req.ip || "unknown");
 };
 
+// 按明文密钥查找：优先 HMAC（新版存储）；未命中再试明文（历史数据），命中即惰性迁移为加密存储
+const findActiveKey = async (plainKey: string): Promise<AccessKey | null> => {
+  const repo = AppDataSource.getRepository(AccessKey);
+  const byHash = await repo.findOne({ where: { key: lookupHash(plainKey), active: true } });
+  if (byHash) return byHash;
+
+  const legacy = await repo.findOne({ where: { key: plainKey, active: true } });
+  if (legacy) {
+    legacy.key = lookupHash(plainKey);
+    legacy.keyEnc = encryptKey(plainKey);
+    await repo.save(legacy);
+  }
+  return legacy;
+};
+
 router.post("/login", loginRateLimiter, asyncHandler(async (req, res) => {
   const { key } = req.body;
 
@@ -44,9 +64,7 @@ router.post("/login", loginRateLimiter, asyncHandler(async (req, res) => {
     throw new HttpError(400, "Access key is required");
   }
 
-  const accessKey = await AppDataSource.getRepository(AccessKey).findOne({
-    where: { key, active: true }
-  });
+  const accessKey = await findActiveKey(key);
 
   if (!accessKey) {
     recordLoginFailure(req);
@@ -55,13 +73,22 @@ router.post("/login", loginRateLimiter, asyncHandler(async (req, res) => {
 
   clearLoginFailures(req);
 
-  const token = jwt.sign({ key: accessKey.key }, process.env.JWT_SECRET!, { expiresIn: "24h" });
+  // payload 携带 HMAC（key）与密钥 ID（kid）：不含明文，且便于前端判断"改的是不是自己的密钥"
+  const token = jwt.sign({ key: accessKey.key, kid: accessKey.id }, process.env.JWT_SECRET!, { expiresIn: "24h" });
 
   res.json({
     token,
     permission: accessKey.permission,
     description: accessKey.description
   });
+}));
+
+// 签发短期媒体令牌：图片 URL 用它代替完整 JWT，避免完整令牌进入访问日志 / 浏览器历史
+router.post("/media-token", authenticate, asyncHandler(async (req, res) => {
+  const token = jwt.sign({ media: true }, process.env.JWT_SECRET!, {
+    expiresIn: MEDIA_TOKEN_TTL_SECONDS,
+  });
+  res.json({ token, expiresIn: MEDIA_TOKEN_TTL_SECONDS });
 }));
 
 router.post("/validate", asyncHandler(async (req, res) => {
