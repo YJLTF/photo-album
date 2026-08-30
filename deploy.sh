@@ -10,6 +10,7 @@
 #   ./deploy.sh          完整部署
 #   ./deploy.sh init     仅配置 SSH 免密（首次使用前执行一次）
 #   ./deploy.sh build    仅构建本地镜像
+#   ./deploy.sh backup   备份服务器数据（data/ + uploads/）到本地 backups/
 #   ./deploy.sh status   查看服务器容器状态
 #   ./deploy.sh logs     跟随查看服务器日志（Ctrl+C 退出）
 #   ./deploy.sh help     查看帮助
@@ -30,6 +31,9 @@ CONTAINER_NAME="${CONTAINER_NAME:-photo-album-server}"
 DEPLOY_OUT_DIR="${DEPLOY_OUT_DIR:-deploy-out}"  # 本地导出包目录（已 gitignore）
 KEEP_LOCAL_TARS="${KEEP_LOCAL_TARS:-3}"         # 本地保留最近几个导出包
 HEALTH_TIMEOUT="${HEALTH_TIMEOUT:-120}"         # 远端健康检查等待秒数
+BACKUP_DIR="${DEPLOY_BACKUP_DIR:-backups}"      # 本地备份存放目录（已 gitignore）
+KEEP_BACKUPS="${KEEP_BACKUPS:-5}"               # 本地保留最近几份备份
+PAUSE_FOR_BACKUP="${PAUSE_FOR_BACKUP:-1}"       # 备份前是否停容器（保证 SQLite 一致性，1=是）
 COMPOSE_FILE="docker-compose.yml"
 DEPLOY_ENV_FILE=".deploy.env"                   # 仅 init 使用，存放服务器 SSH 密码
 
@@ -256,8 +260,68 @@ cmd_logs() {
   ssh_run "docker logs -f --tail 100 '$CONTAINER_NAME'"
 }
 
+# ---------- 服务器数据备份 ----------
+cmd_backup() {
+  ensure_ssh
+  local ts
+  ts=$(date +%Y%m%d-%H%M%S)
+  mkdir -p "$BACKUP_DIR"
+  info "在服务器打包 data/ 与 uploads/ ..."
+  ssh_run 'bash -s' -- "$REMOTE_DIR" "$ts" "$PAUSE_FOR_BACKUP" <<'REMOTE_BACKUP'
+set -euo pipefail
+RDIR="$1"; TS="$2"; PAUSE="$3"
+cd "$RDIR"
+[ -d data ] || { echo "FAIL: $RDIR/data 不存在"; exit 1; }
+COMPOSE="docker compose"
+
+# 停容器保证 SQLite 备份一致性（打包完成或脚本退出时自动重启）
+if [ "$PAUSE" = "1" ] && [ -n "$($COMPOSE ps -q 2>/dev/null || true)" ]; then
+  echo "暂停容器以保证 SQLite 备份一致性（完成后自动重启）..."
+  $COMPOSE stop >/dev/null
+else
+  PAUSE=0
+fi
+cleanup() {
+  if [ "$PAUSE" = "1" ]; then
+    echo "重启容器 ..."
+    cd "$RDIR" && $COMPOSE start >/dev/null 2>&1 || true
+  fi
+}
+trap cleanup EXIT
+
+TARBALL="/tmp/photo-album-backup-$TS.tar.gz"
+tar czf "$TARBALL" data uploads
+echo "REMOTE_OK $(du -h "$TARBALL" | cut -f1)"
+REMOTE_BACKUP
+
+  info "下载备份包到 $BACKUP_DIR/ ..."
+  scp "${SSH_OPTS[@]}" "$REMOTE_USER@$REMOTE_HOST:/tmp/photo-album-backup-$ts.tar.gz" \
+    "$BACKUP_DIR/photo-album-backup-$ts.tar.gz"
+  ssh_run "rm -f /tmp/photo-album-backup-$ts.tar.gz"
+
+  # 本地只保留最近 KEEP_BACKUPS 份
+  ls -1t "$BACKUP_DIR"/photo-album-backup-*.tar.gz 2>/dev/null | tail -n "+$((KEEP_BACKUPS + 1))" | while IFS= read -r f; do
+    warn "删除旧备份: $f"
+    rm -f "$f"
+  done || true
+  ok "备份完成: $BACKUP_DIR/photo-album-backup-$ts.tar.gz（本地保留最近 $KEEP_BACKUPS 份）"
+}
+
 usage() {
-  sed -n '3,20p' "$0" | sed 's/^# \{0,1\}//'
+  cat <<'EOF'
+用法: ./deploy.sh [命令]
+
+  (无命令)  完整部署: 构建镜像 → 导出 → 上传 → 远端重建 → 健康检查
+  init      配置 SSH 免密（首次使用前执行一次；.deploy.env 提供密码）
+  build     仅构建本地镜像
+  backup    备份服务器 data/ 与 uploads/ 到本地 backups/（默认先停容器保证一致性）
+  status    查看服务器容器 / 镜像 / 磁盘状态
+  logs      跟随查看服务器日志（Ctrl+C 退出）
+  help      查看本帮助
+
+可用环境变量覆盖: DEPLOY_HOST / DEPLOY_USER / DEPLOY_DIR / DEPLOY_IMAGE /
+  DEPLOY_BACKUP_DIR / KEEP_BACKUPS / PAUSE_FOR_BACKUP / HEALTH_TIMEOUT
+EOF
 }
 
 main() {
@@ -267,6 +331,7 @@ main() {
     deploy) cmd_deploy ;;
     init)   cmd_init ;;
     build)  cmd_build ;;
+    backup) cmd_backup ;;
     status) cmd_status ;;
     logs)   cmd_logs ;;
     help|-h|--help) usage ;;

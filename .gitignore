@@ -43,3 +43,4 @@ deploy-out/
 
 backend/data/*
 backend/uploads/*
+backups/

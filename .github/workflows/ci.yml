@@ -1,0 +1,51 @@
+name: CI
+
+on:
+  push:
+    branches: ["master", "服务版"]
+  pull_request:
+
+jobs:
+  frontend:
+    name: 前端 (lint / typecheck / build)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+
+      - name: 安装依赖
+        run: npm ci
+
+      - name: ESLint
+        run: npm run lint
+
+      - name: TypeScript 类型检查
+        run: npm run check
+
+      - name: 生产构建
+        run: npm run build
+
+  backend:
+    name: 后端 (typecheck / build)
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: backend
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+          cache-dependency-path: backend/package-lock.json
+
+      - name: 安装依赖
+        run: npm ci
+
+      - name: TypeScript 类型检查与构建
+        run: npm run build
