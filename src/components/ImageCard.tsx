@@ -67,7 +67,8 @@ export default function ImageCard({
             "absolute top-2 left-2 w-6 h-6 rounded-md border-2 flex items-center justify-center transition-all duration-200 z-10",
             isSelected
               ? "bg-[#E8845C] border-[#E8845C] text-white"
-              : "border-white/40 bg-black/30 opacity-0 group-hover:opacity-100 hover:border-[#E8845C]"
+              // 触屏没有 hover，多选框在移动端常显，桌面仍 hover 后出现
+              : "border-white/40 bg-black/30 opacity-100 md:opacity-0 md:group-hover:opacity-100 hover:border-[#E8845C]"
           )}
           aria-label={isSelected ? "取消选择" : "选择图片"}
         >
@@ -75,8 +76,8 @@ export default function ImageCard({
         </button>
       )}
 
-      {/* Hover overlay */}
-      <div className="absolute inset-0 bg-gradient-to-t from-black/70 via-transparent to-transparent opacity-0 group-hover:opacity-100 transition-opacity duration-300 flex items-end justify-center pb-4 gap-2">
+      {/* Hover overlay（触屏没有 hover，操作按钮在移动端常显） */}
+      <div className="absolute inset-0 bg-gradient-to-t from-black/70 via-transparent to-transparent opacity-100 md:opacity-0 md:group-hover:opacity-100 transition-opacity duration-300 flex items-end justify-center pb-4 gap-2">
         <button
           onClick={(e) => {
             e.stopPropagation();
@@ -133,7 +134,7 @@ export default function ImageCard({
               e.stopPropagation();
               onAddTag();
             }}
-            className="shrink-0 w-6 h-6 rounded-full bg-[#E8845C]/20 border border-[#E8845C]/40 flex items-center justify-center text-[#E8845C] opacity-0 group-hover:opacity-100 hover:bg-[#E8845C] hover:text-white transition-all"
+            className="shrink-0 w-6 h-6 rounded-full bg-[#E8845C]/20 border border-[#E8845C]/40 flex items-center justify-center text-[#E8845C] opacity-100 md:opacity-0 md:group-hover:opacity-100 hover:bg-[#E8845C] hover:text-white transition-all"
             title="添加标签"
             aria-label="添加标签"
           >

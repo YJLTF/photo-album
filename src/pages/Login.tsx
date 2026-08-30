@@ -45,7 +45,7 @@ export default function Login({ onLogin }: LoginProps) {
   return (
     <div className="min-h-screen flex items-center justify-center bg-gradient-to-br from-[#1A1A2E] via-[#16213E] to-[#0F0F23]">
       <div className="w-full max-w-md px-6">
-        <div className="bg-[#16213E]/80 backdrop-blur-sm rounded-2xl border border-white/5 shadow-[0_0_40px_rgba(0,0,0,0.3)] p-8">
+        <div className="bg-[#16213E]/80 backdrop-blur-sm rounded-2xl border border-white/5 shadow-[0_0_40px_rgba(0,0,0,0.3)] p-6 sm:p-8">
           {/* Logo */}
           <div className="flex justify-center mb-8">
             <div className="w-16 h-16 rounded-full bg-[#E8845C]/10 flex items-center justify-center">

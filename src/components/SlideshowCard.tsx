@@ -43,9 +43,9 @@ export default function SlideshowCard({ slideshow, onPlay, onEdit, onDelete }: S
         )}
       </div>
 
-      {/* Action buttons */}
+      {/* Action buttons（触屏没有 hover，移动端常显） */}
       {(onEdit || onDelete) && (
-        <div className="flex items-center justify-center gap-2 mt-3 opacity-0 group-hover:opacity-100 transition-opacity duration-200">
+        <div className="flex items-center justify-center gap-2 mt-3 opacity-100 md:opacity-0 md:group-hover:opacity-100 transition-opacity duration-200">
           {onEdit && (
             <button
               onClick={onEdit}

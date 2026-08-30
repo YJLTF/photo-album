@@ -245,18 +245,18 @@ export default function AlbumDetail() {
     <div className="min-h-screen bg-[#1A1A2E]" style={{ fontFamily: "'DM Sans', sans-serif" }}>
       {/* Header */}
       <header className="sticky top-0 z-10 bg-[#16213E]/80 backdrop-blur-md border-b border-white/5">
-        <div className="max-w-7xl mx-auto px-6 py-4">
-          <div className="flex items-center justify-between">
-            <div className="flex items-center gap-4">
+        <div className="max-w-7xl mx-auto px-4 sm:px-6 py-3 sm:py-4">
+          <div className="flex flex-wrap items-center justify-between gap-2 sm:gap-3">
+            <div className="flex items-center gap-2 sm:gap-4 min-w-0">
               <button
                 onClick={() => navigate("/")}
-                className="p-2 hover:bg-white/5 rounded-lg transition-colors"
+                className="p-2 hover:bg-white/5 rounded-lg transition-colors shrink-0"
                 aria-label="返回"
               >
                 <ArrowLeft size={20} className="text-[#F5F0EB]" />
               </button>
-              <div>
-                <h1 className="text-xl font-bold text-[#F5F0EB]" style={{ fontFamily: "'Playfair Display', serif" }}>
+              <div className="min-w-0">
+                <h1 className="text-lg sm:text-xl font-bold text-[#F5F0EB] truncate" style={{ fontFamily: "'Playfair Display', serif" }}>
                   {album.name}
                 </h1>
                 <p className="text-sm text-[#F5F0EB]/50">{total} 个文件</p>
@@ -266,7 +266,7 @@ export default function AlbumDetail() {
               <button
                 onClick={handlePlaySlideshow}
                 disabled={images.length === 0}
-                className="flex items-center gap-2 px-4 py-2 bg-white/5 border border-white/10 hover:bg-white/10 disabled:opacity-30 disabled:cursor-not-allowed rounded-lg text-sm transition-colors"
+                className="flex items-center gap-2 px-3 sm:px-4 py-2 bg-white/5 border border-white/10 hover:bg-white/10 disabled:opacity-30 disabled:cursor-not-allowed rounded-lg text-sm transition-colors"
               >
                 <Play size={16} />
                 <span>轮播播放</span>
@@ -279,9 +279,9 @@ export default function AlbumDetail() {
       {/* Batch actions bar */}
       {selectedImages.size > 0 && (
         <div className="bg-[#16213E] border-b border-white/5">
-          <div className="max-w-7xl mx-auto px-6 py-3">
-            <div className="flex items-center justify-between">
-              <div className="flex items-center gap-4">
+          <div className="max-w-7xl mx-auto px-4 sm:px-6 py-3">
+            <div className="flex flex-wrap items-center justify-between gap-x-4 gap-y-2">
+              <div className="flex items-center gap-3 sm:gap-4">
                 <span className="text-sm text-[#F5F0EB]/70">已选择 {selectedImages.size} 张照片</span>
                 <button
                   onClick={() => setSelectedImages(new Set())}
@@ -290,7 +290,7 @@ export default function AlbumDetail() {
                   取消选择
                 </button>
               </div>
-              <div className="flex items-center gap-3">
+              <div className="flex items-center gap-2 sm:gap-3">
                 <button
                   onClick={() => {
                     setSelectedImageId(Array.from(selectedImages)[0]);
@@ -317,7 +317,7 @@ export default function AlbumDetail() {
       )}
 
       {/* Main content */}
-      <main className="max-w-7xl mx-auto px-6 py-8">
+      <main className="max-w-7xl mx-auto px-4 sm:px-6 py-6 sm:py-8">
       {/* Upload zone */}
       {canEdit && (
         <div className="mb-6">

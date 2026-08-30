@@ -150,24 +150,24 @@ export default function Home() {
     <div className="min-h-screen bg-[#1A1A2E] text-[#F5F0EB]" style={{ fontFamily: "'DM Sans', sans-serif" }}>
       {/* Header */}
       <header className="sticky top-0 z-10 bg-[#16213E]/80 backdrop-blur-md border-b border-white/5">
-        <div className="max-w-7xl mx-auto px-6 py-4">
-          <div className="flex items-center justify-between">
-            <div>
-              <h1 className="text-2xl font-bold" style={{ fontFamily: "'Playfair Display', serif" }}>我的相册</h1>
+        <div className="max-w-7xl mx-auto px-4 sm:px-6 py-3 sm:py-4">
+          <div className="flex flex-wrap items-center justify-between gap-3">
+            <div className="min-w-0">
+              <h1 className="text-xl sm:text-2xl font-bold" style={{ fontFamily: "'Playfair Display', serif" }}>我的相册</h1>
               <p className="text-sm text-[#F5F0EB]/50 mt-1">管理您的照片和轮播</p>
             </div>
             {canEdit && (
-              <div className="flex items-center gap-3">
+              <div className="flex items-center gap-2 sm:gap-3">
                 <button
                   onClick={() => setShowTagModal(true)}
-                  className="flex items-center gap-2 px-4 py-2 bg-white/5 border border-white/10 hover:bg-white/10 rounded-lg text-sm transition-colors"
+                  className="flex items-center gap-2 px-3 sm:px-4 py-2 bg-white/5 border border-white/10 hover:bg-white/10 rounded-lg text-sm transition-colors"
                 >
                   <TagIcon size={16} />
                   <span>新建标签</span>
                 </button>
                 <button
                   onClick={() => setShowCreateModal(true)}
-                  className="flex items-center gap-2 px-4 py-2 bg-[#E8845C] hover:bg-[#E8845C]/80 rounded-lg text-sm font-medium transition-colors"
+                  className="flex items-center gap-2 px-3 sm:px-4 py-2 bg-[#E8845C] hover:bg-[#E8845C]/80 rounded-lg text-sm font-medium transition-colors"
                 >
                   <Plus size={16} />
                   <span>新建相册</span>
@@ -179,7 +179,7 @@ export default function Home() {
       </header>
 
       {/* Main content */}
-      <main className="max-w-7xl mx-auto px-6 py-8">
+      <main className="max-w-7xl mx-auto px-4 sm:px-6 py-6 sm:py-8">
         {/* Upload zone */}
         {canEdit && (
           <section className="mb-8">
@@ -208,7 +208,7 @@ export default function Home() {
                 <select
                   value={selectedAlbumId}
                   onChange={(e) => setSelectedAlbumId(e.target.value)}
-                  className="absolute top-3 right-3 bg-[#16213E]/80 backdrop-blur-sm text-[#F5F0EB] border border-white/10 rounded-lg px-3 py-1.5 text-xs focus:outline-none focus:border-[#E8845C]/50"
+                  className="mt-2 w-full sm:mt-0 sm:w-auto sm:absolute sm:top-3 sm:right-3 bg-[#16213E]/80 backdrop-blur-sm text-[#F5F0EB] border border-white/10 rounded-lg px-3 py-1.5 text-xs focus:outline-none focus:border-[#E8845C]/50"
                 >
                   {albums.map((a) => (
                     <option key={a.id} value={a.id}>{a.name}</option>

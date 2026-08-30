@@ -41,7 +41,7 @@ export default function Modal({ isOpen, onClose, title, children }: ModalProps) 
       {/* Content（keyframes 定义在 index.css，无需 tailwindcss-animate 插件） */}
       <div
         className={cn(
-          "relative w-full max-w-lg mx-4 bg-[#1A1A2E] border border-white/10 rounded-2xl shadow-2xl",
+          "relative w-full max-w-lg mx-4 max-h-[90dvh] overflow-y-auto bg-[#1A1A2E] border border-white/10 rounded-2xl shadow-2xl",
           "animate-[modal-in_0.2s_ease-out]"
         )}
       >

@@ -12,12 +12,12 @@ export function ToastHost() {
   if (list.length === 0) return null;
 
   return (
-    <div className="fixed bottom-6 left-1/2 -translate-x-1/2 z-[100] flex flex-col items-center gap-2 pointer-events-none">
+    <div className="fixed bottom-6 left-1/2 -translate-x-1/2 z-[100] flex flex-col items-center gap-2 pointer-events-none w-max max-w-[calc(100vw-2rem)]">
       {list.map(t => (
         <div
           key={t.id}
           className={cn(
-            "flex items-center gap-2 px-4 py-2.5 rounded-xl border shadow-lg backdrop-blur-md text-sm",
+            "flex items-center gap-2 px-4 py-2.5 rounded-xl border shadow-lg backdrop-blur-md text-sm max-w-full",
             "animate-[toast-in_0.25s_ease-out]",
             t.kind === "success"
               ? "bg-[#16213E]/95 border-[#5CE8A0]/30 text-[#F5F0EB]"
@@ -28,7 +28,7 @@ export function ToastHost() {
           {t.kind === "success"
             ? <CheckCircle2 size={16} className="text-[#5CE8A0] shrink-0" />
             : <XCircle size={16} className="text-red-400 shrink-0" />}
-          <span>{t.message}</span>
+          <span className="break-words">{t.message}</span>
         </div>
       ))}
     </div>

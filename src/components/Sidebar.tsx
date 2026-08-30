@@ -28,9 +28,11 @@ interface SidebarProps {
   onNavigate?: (key: string) => void;
   permission: PermissionLevel;
   onLogout: () => void;
+  /** 移动端抽屉模式：占满父容器宽度，隐藏折叠按钮 */
+  mobile?: boolean;
 }
 
-export default function Sidebar({ activeKey = "albums", onNavigate, permission, onLogout }: SidebarProps) {
+export default function Sidebar({ activeKey = "albums", onNavigate, permission, onLogout, mobile }: SidebarProps) {
   const [collapsed, setCollapsed] = useState(false);
 
   const canAccess = (item: NavItem) => {
@@ -59,7 +61,7 @@ export default function Sidebar({ activeKey = "albums", onNavigate, permission, 
     <aside
       className={cn(
         "relative flex flex-col h-full bg-[#1A1A2E] border-r border-white/10 transition-all duration-300",
-        collapsed ? "w-16" : "w-56"
+        mobile ? "w-full" : collapsed ? "w-16" : "w-56"
       )}
     >
       {/* Logo */}
@@ -121,14 +123,16 @@ export default function Sidebar({ activeKey = "albums", onNavigate, permission, 
         </button>
       </div>
 
-      {/* Collapse toggle */}
-      <button
-        onClick={() => setCollapsed(!collapsed)}
-        className="absolute -right-3 top-1/2 -translate-y-1/2 w-6 h-6 rounded-full bg-[#16213E] border border-white/10 flex items-center justify-center text-[#F5F0EB]/60 hover:text-[#E8845C] hover:border-[#E8845C]/40 transition-colors z-10"
-        aria-label={collapsed ? "展开侧栏" : "收起侧栏"}
-      >
-        {collapsed ? <ChevronRight size={14} /> : <ChevronLeft size={14} />}
-      </button>
+      {/* Collapse toggle（移动端抽屉不需要） */}
+      {!mobile && (
+        <button
+          onClick={() => setCollapsed(!collapsed)}
+          className="absolute -right-3 top-1/2 -translate-y-1/2 w-6 h-6 rounded-full bg-[#16213E] border border-white/10 flex items-center justify-center text-[#F5F0EB]/60 hover:text-[#E8845C] hover:border-[#E8845C]/40 transition-colors z-10"
+          aria-label={collapsed ? "展开侧栏" : "收起侧栏"}
+        >
+          {collapsed ? <ChevronRight size={14} /> : <ChevronLeft size={14} />}
+        </button>
+      )}
     </aside>
   );
 }

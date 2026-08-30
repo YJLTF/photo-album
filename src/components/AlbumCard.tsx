@@ -29,9 +29,9 @@ export default function AlbumCard({ album, onEdit, onDelete, onUploadCover, onCl
           </div>
         )}
 
-        {/* Hover overlay with action buttons */}
+        {/* Hover overlay with action buttons（触屏没有 hover，移动端常显、底色更淡） */}
         {(onUploadCover || onEdit || onDelete) && (
-          <div className="absolute inset-0 bg-black/40 opacity-0 group-hover:opacity-100 transition-opacity duration-300 flex items-center justify-center gap-3">
+          <div className="absolute inset-0 bg-black/25 md:bg-black/40 opacity-100 md:opacity-0 md:group-hover:opacity-100 transition-opacity duration-300 flex items-center justify-center gap-3">
             {onUploadCover && (
               <button
                 onClick={(e) => {

@@ -184,7 +184,7 @@ export default function SlideshowEdit() {
   return (
     <div className="h-screen flex flex-col bg-[#1A1A2E] text-[#F5F0EB]" style={{ fontFamily: "'DM Sans', sans-serif" }}>
       {/* Header */}
-      <header className="flex items-center gap-4 px-6 py-3 border-b border-white/5 bg-[#16213E]">
+      <header className="flex flex-wrap items-center gap-2 sm:gap-4 px-4 sm:px-6 py-3 border-b border-white/5 bg-[#16213E]">
         <h1 className="text-lg font-semibold whitespace-nowrap" style={{ fontFamily: "'Playfair Display', serif" }}>编辑轮播</h1>
         <select
           value={existingId || ''}
@@ -203,14 +203,14 @@ export default function SlideshowEdit() {
               navigate('/slideshow/edit');
             }
           }}
-          className="max-w-xs bg-[#1A1A2E] border border-white/10 rounded-lg px-3 py-1.5 text-sm text-[#F5F0EB] outline-none focus:border-[#E8845C]/50">
+          className="max-w-full sm:max-w-xs bg-[#1A1A2E] border border-white/10 rounded-lg px-3 py-1.5 text-sm text-[#F5F0EB] outline-none focus:border-[#E8845C]/50">
           <option value="" className="bg-[#1A1A2E] text-[#F5F0EB]/60">选择已保存的轮播...</option>
           {slideshows.map(sl => (
             <option key={sl.id} value={sl.id} className="bg-[#1A1A2E] text-[#F5F0EB]">{sl.name}</option>
           ))}
         </select>
         <input value={name} onChange={e => setName(e.target.value)}
-          className="flex-1 max-w-xs bg-white/5 border border-white/10 rounded-lg px-3 py-1.5 text-sm text-[#F5F0EB] outline-none focus:border-[#E8845C]/50" />
+          className="flex-1 min-w-[8rem] max-w-xs bg-white/5 border border-white/10 rounded-lg px-3 py-1.5 text-sm text-[#F5F0EB] outline-none focus:border-[#E8845C]/50" />
         {canEdit && (
           <button onClick={handleSave} disabled={saving}
             className="flex items-center gap-1.5 px-4 py-1.5 bg-[#E8845C] hover:bg-[#E8845C]/80 rounded-lg text-sm font-medium transition-colors disabled:opacity-50">
@@ -224,10 +224,10 @@ export default function SlideshowEdit() {
         </button>
       </header>
 
-      {/* Main content */}
-      <div className="flex-1 flex overflow-hidden">
+      {/* Main content：移动端纵向堆叠，lg 起恢复左中右三栏 */}
+      <div className="flex-1 flex flex-col lg:flex-row overflow-y-auto lg:overflow-hidden">
         {/* Left - Album selection and available images */}
-        <div className="w-80 border-r border-white/5 flex flex-col">
+        <div className="w-full lg:w-80 shrink-0 border-b lg:border-b-0 lg:border-r border-white/5 flex flex-col">
           {/* Album selector */}
           <div className="p-4 border-b border-white/5">
             <label className="block text-xs text-[#F5F0EB]/50 mb-2">选择相册</label>
@@ -272,12 +272,12 @@ export default function SlideshowEdit() {
         </div>
 
         {/* Center - Slides */}
-        <div className="flex-1 flex flex-col overflow-hidden">
-          <div className="flex-1 overflow-y-auto p-6">
+        <div className="flex-1 min-w-0 flex flex-col">
+          <div className="flex-1 p-4 sm:p-6">
             {slides.length === 0 ? (
-              <div className="h-full flex flex-col items-center justify-center text-center">
+              <div className="h-full flex flex-col items-center justify-center text-center py-10 lg:py-0">
                 <ImageIcon size={48} className="text-[#F5F0EB]/15 mb-4" />
-                <p className="text-[#F5F0EB]/40">从左侧选择图片添加到轮播</p>
+                <p className="text-[#F5F0EB]/40">从相册中选择图片添加到轮播</p>
               </div>
             ) : (
               <div className="space-y-4">
@@ -287,7 +287,7 @@ export default function SlideshowEdit() {
                     <div
                       // 列表支持上下移动，用稳定的 imageId 作 key，避免索引 key 导致输入框错位
                       key={slide.imageId}
-                      className={`flex gap-4 p-4 rounded-xl border transition-all ${selectedIdx === idx ? 'bg-[#16213E] border-[#E8845C]/50' : 'bg-[#16213E]/50 border-white/5 hover:border-white/10'}`}
+                      className={`flex gap-3 sm:gap-4 p-3 sm:p-4 rounded-xl border transition-all ${selectedIdx === idx ? 'bg-[#16213E] border-[#E8845C]/50' : 'bg-[#16213E]/50 border-white/5 hover:border-white/10'}`}
                       onClick={() => setSelectedIdx(idx)}
                     >
                       {/* Image thumbnail */}
@@ -308,15 +308,15 @@ export default function SlideshowEdit() {
                       </div>
 
                       {/* Controls */}
-                      <div className="flex-1 flex flex-col gap-2">
-                        <div className="flex items-center gap-2">
+                      <div className="flex-1 min-w-0 flex flex-col gap-2">
+                        <div className="flex items-center gap-2 flex-wrap">
                           <input
                             type="text"
                             value={slide.overlayText}
                             onChange={e => { if (canEdit) updateSlide(idx, { overlayText: e.target.value }); }}
                             placeholder="叠加文字..."
                             disabled={!canEdit}
-                            className="flex-1 bg-white/5 border border-white/10 rounded-lg px-3 py-1 text-sm text-[#F5F0EB] placeholder-[#F5F0EB]/30 outline-none focus:border-[#E8845C]/50 disabled:cursor-not-allowed"
+                            className="flex-1 min-w-[7rem] bg-white/5 border border-white/10 rounded-lg px-3 py-1 text-sm text-[#F5F0EB] placeholder-[#F5F0EB]/30 outline-none focus:border-[#E8845C]/50 disabled:cursor-not-allowed"
                           />
                           <select
                             value={slide.textPosition}
@@ -380,7 +380,7 @@ export default function SlideshowEdit() {
         </div>
 
         {/* Right - Settings */}
-        <div className="w-72 border-l border-white/5 p-4 overflow-y-auto">
+        <div className="w-full lg:w-72 shrink-0 border-t lg:border-t-0 lg:border-l border-white/5 p-4 sm:p-5 lg:overflow-y-auto">
           <h3 className="text-sm font-medium mb-4">转场效果</h3>
           <div className="grid grid-cols-3 gap-2">
             {EFFECTS.map(effectName => (

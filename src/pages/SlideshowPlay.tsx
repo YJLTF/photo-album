@@ -278,18 +278,18 @@ export default function SlideshowPlay() {
       {/* Controls overlay */}
       <div className={`absolute inset-0 bg-gradient-to-t from-black/80 via-transparent to-black/40 transition-opacity duration-300 ${showControls ? 'opacity-100' : 'opacity-0'}`}>
         {/* Top bar */}
-        <div className="absolute top-0 left-0 right-0 p-4 flex justify-between items-center">
-          <div className="text-white/80 font-medium">
+        <div className="absolute top-0 left-0 right-0 p-4 flex justify-between items-center gap-3">
+          <div className="text-white/80 font-medium truncate min-w-0">
             {currentSlideshow.name}
           </div>
-          <div className="flex items-center gap-2 text-white/80 text-sm">
+          <div className="flex items-center gap-2 text-white/80 text-sm shrink-0">
             {currentIndex + 1} / {slides.length}
           </div>
         </div>
 
         {/* Bottom controls */}
-        <div className="absolute bottom-0 left-0 right-0 p-6">
-          <div className="flex items-center justify-center gap-6">
+        <div className="absolute bottom-0 left-0 right-0 p-4 sm:p-6">
+          <div className="flex items-center justify-center gap-4 sm:gap-6">
             <button onClick={goPrev} className="w-12 h-12 rounded-full bg-white/10 backdrop-blur-sm flex items-center justify-center text-white hover:bg-white/20 transition-colors">
               <ChevronLeft size={24} />
             </button>
@@ -324,8 +324,8 @@ export default function SlideshowPlay() {
         </button>
       </div>
 
-      {/* Exit hint */}
-      <div className={`absolute top-4 right-4 text-white/30 text-sm transition-opacity duration-300 ${showControls ? 'opacity-100' : 'opacity-0'}`}>
+      {/* Exit hint（移动端没有 ESC 键，不展示） */}
+      <div className={`hidden sm:block absolute top-4 right-4 text-white/30 text-sm transition-opacity duration-300 ${showControls ? 'opacity-100' : 'opacity-0'}`}>
         按 ESC 退出
       </div>
     </div>

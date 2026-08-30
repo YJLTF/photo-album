@@ -139,18 +139,18 @@ export default function AccessKeys() {
   };
 
   return (
-    <div className="p-8">
+    <div className="p-4 sm:p-8">
       {/* Header */}
-      <div className="flex items-center justify-between mb-8">
-        <div>
-          <h1 className="text-2xl font-bold text-[#F5F0EB] mb-1" style={{ fontFamily: "'Playfair Display', serif" }}>
+      <div className="flex flex-wrap items-center justify-between gap-3 mb-6 sm:mb-8">
+        <div className="min-w-0">
+          <h1 className="text-xl sm:text-2xl font-bold text-[#F5F0EB] mb-1" style={{ fontFamily: "'Playfair Display', serif" }}>
             访问密钥管理
           </h1>
           <p className="text-[#F5F0EB]/50 text-sm">管理用户的访问密钥和权限</p>
         </div>
         <button
           onClick={() => setShowCreateModal(true)}
-          className="flex items-center gap-2 px-4 py-2 bg-[#E8845C] hover:bg-[#E8845C]/80 rounded-lg font-medium transition-colors"
+          className="flex items-center gap-2 px-3 sm:px-4 py-2 bg-[#E8845C] hover:bg-[#E8845C]/80 rounded-lg font-medium transition-colors"
         >
           <Plus size={18} />
           <span>创建密钥</span>
@@ -168,16 +168,16 @@ export default function AccessKeys() {
           keys.map((key) => (
             <div
               key={key.id}
-              className={`flex items-center justify-between p-4 rounded-xl border transition-all ${
+              className={`flex flex-col sm:flex-row sm:items-center justify-between gap-3 p-4 rounded-xl border transition-all ${
                 key.active
                   ? "bg-[#16213E]/50 border-white/10"
                   : "bg-[#16213E]/20 border-white/5 opacity-60"
               }`}
             >
-              <div className="flex-1">
-                <div className="flex items-center gap-3 mb-2">
-                  <code className="text-[#E8845C] font-mono font-medium">{key.key}</code>
-                  <span className={`px-2 py-0.5 rounded text-xs font-medium ${PERMISSION_BADGE_COLORS[key.permission]}`}>
+              <div className="flex-1 min-w-0">
+                <div className="flex items-center flex-wrap gap-x-3 gap-y-1.5 mb-2">
+                  <code className="text-[#E8845C] font-mono font-medium break-all">{key.key}</code>
+                  <span className={`px-2 py-0.5 rounded text-xs font-medium shrink-0 ${PERMISSION_BADGE_COLORS[key.permission]}`}>
                     {PERMISSION_LABELS[key.permission]}
                   </span>
                   {!key.active && (

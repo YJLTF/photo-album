@@ -16,6 +16,24 @@ body {
   background: linear-gradient(135deg, #1A1A2E 0%, #16213E 100%);
   color: #F5F0EB;
   min-height: 100vh;
+  /* 移动端兜底：内容超宽时整体横滚很难看，按组件内截断/换行处理 */
+  overflow-x: hidden;
+}
+
+/* 移动端基础体验 */
+@media (max-width: 767px) {
+  /* 去掉点按时的高亮色块 */
+  button, a, [role="button"] {
+    -webkit-tap-highlight-color: transparent;
+  }
+  /* 双击缩放会拖慢连续点按按钮的手感 */
+  button, [role="button"] {
+    touch-action: manipulation;
+  }
+  /* iOS 在输入框字号 <16px 时聚焦会强制放大页面，移动端统一 16px 避免 */
+  input, select, textarea {
+    font-size: 16px !important;
+  }
 }
 
 h1, h2, h3, h4, h5, h6 {

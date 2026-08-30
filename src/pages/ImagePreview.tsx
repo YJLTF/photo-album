@@ -19,6 +19,8 @@ export default function ImagePreview() {
   const hideTimerRef = useRef<number | null>(null);
   // 当前展示中的 object URL，切换时释放旧的，卸载时释放最后的
   const displayedUrlRef = useRef<string | null>(null);
+  // 触屏滑动切换的起点；缩放/旋转状态下不响应，避免和查看操作打架
+  const touchStartRef = useRef<{ x: number; y: number } | null>(null);
 
   const resetHideTimer = useCallback(() => {
     if (hideTimerRef.current) clearTimeout(hideTimerRef.current);
@@ -29,8 +31,11 @@ export default function ImagePreview() {
   useEffect(() => {
     resetHideTimer();
     document.addEventListener('mousemove', resetHideTimer);
+    // 触屏没有 mousemove，靠 touchstart 唤起控制条
+    document.addEventListener('touchstart', resetHideTimer);
     return () => {
       document.removeEventListener('mousemove', resetHideTimer);
+      document.removeEventListener('touchstart', resetHideTimer);
       if (hideTimerRef.current) clearTimeout(hideTimerRef.current);
     };
   }, [resetHideTimer]);
@@ -114,6 +119,28 @@ export default function ImagePreview() {
   const resetZoom = useCallback(() => { setScale(1); setRotation(0); }, []);
   const rotate = useCallback(() => setRotation(prev => (prev + 90) % 360), []);
 
+  // 触屏左右滑动切换上一张/下一张
+  const handleTouchStart = useCallback((e: React.TouchEvent) => {
+    const t = e.touches[0];
+    touchStartRef.current = { x: t.clientX, y: t.clientY };
+  }, []);
+
+  const handleTouchEnd = useCallback((e: React.TouchEvent) => {
+    const start = touchStartRef.current;
+    touchStartRef.current = null;
+    if (!start) return;
+    // 已缩放或旋转时松手语义不明确，不做滑动切换
+    if (scale !== 1 || rotation !== 0) return;
+    const t = e.changedTouches[0];
+    const dx = t.clientX - start.x;
+    const dy = t.clientY - start.y;
+    // 水平位移足够大且明显大于垂直位移才切换，避免误伤轻微斜向滑动
+    if (Math.abs(dx) > 48 && Math.abs(dx) > Math.abs(dy) * 1.5) {
+      if (dx < 0) goNext();
+      else goPrev();
+    }
+  }, [scale, rotation, goNext, goPrev]);
+
   const handleDownload = useCallback(() => {
     const link = document.createElement('a');
     link.href = imageUrl;
@@ -163,7 +190,11 @@ export default function ImagePreview() {
   return (
     <div className="fixed inset-0 bg-black">
       {/* Media */}
-      <div className="w-full h-full flex items-center justify-center overflow-hidden">
+      <div
+        className="w-full h-full flex items-center justify-center overflow-hidden"
+        onTouchStart={handleTouchStart}
+        onTouchEnd={handleTouchEnd}
+      >
         {isVideo ? (
           <video
             key={imageUrl}
@@ -188,33 +219,33 @@ export default function ImagePreview() {
       {/* Controls */}
       <div className={`absolute inset-0 pointer-events-none transition-opacity duration-300 ${showControls ? 'opacity-100' : 'opacity-0'}`}>
         {/* Top bar */}
-        <div className="pointer-events-auto absolute top-0 left-0 right-0 p-4 flex justify-between items-center">
-          <div className="text-white/80 text-sm max-w-xs truncate">
+        <div className="pointer-events-auto absolute top-0 left-0 right-0 p-3 sm:p-4 flex justify-between items-center gap-3">
+          <div className="text-white/80 text-sm max-w-[60%] sm:max-w-xs truncate">
             {image.name}
           </div>
           <button
             onClick={exit}
-            className="p-2 rounded-lg bg-white/10 hover:bg-white/20 text-white transition-colors"
+            className="p-2 sm:p-2.5 rounded-lg bg-white/10 hover:bg-white/20 text-white transition-colors shrink-0"
           >
             <X size={20} />
           </button>
         </div>
 
         {/* Bottom bar（缩放/旋转仅对图片有意义，视频隐藏） */}
-        <div className="pointer-events-auto absolute bottom-0 left-0 right-0 p-4">
-          <div className="flex items-center justify-center gap-4">
+        <div className="pointer-events-auto absolute bottom-0 left-0 right-0 p-3 sm:p-4">
+          <div className="flex items-center justify-center gap-2 sm:gap-4 flex-wrap">
             {!isVideo && (
               <>
                 <button onClick={zoomOut} className="p-3 rounded-full bg-white/10 hover:bg-white/20 text-white transition-colors">
                   <ZoomOut size={20} />
                 </button>
-                <button onClick={resetZoom} className="px-4 py-3 rounded-full bg-white/10 hover:bg-white/20 text-white text-sm transition-colors">
+                <button onClick={resetZoom} className="px-3 sm:px-4 py-3 rounded-full bg-white/10 hover:bg-white/20 text-white text-sm transition-colors">
                   {Math.round(scale * 100)}%
                 </button>
                 <button onClick={zoomIn} className="p-3 rounded-full bg-white/10 hover:bg-white/20 text-white transition-colors">
                   <ZoomIn size={20} />
                 </button>
-                <div className="w-px h-8 bg-white/20 mx-2" />
+                <div className="w-px h-8 bg-white/20 mx-1 sm:mx-2" />
                 <button onClick={rotate} className="p-3 rounded-full bg-white/10 hover:bg-white/20 text-white transition-colors">
                   <RotateCw size={20} />
                 </button>

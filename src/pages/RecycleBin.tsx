@@ -84,10 +84,10 @@ export default function RecycleBin() {
     <div className="min-h-screen bg-[#1A1A2E]" style={{ fontFamily: "'DM Sans', sans-serif" }}>
       {/* Header */}
       <header className="sticky top-0 z-10 bg-[#16213E]/80 backdrop-blur-md border-b border-white/5">
-        <div className="max-w-7xl mx-auto px-6 py-4">
-          <div className="flex items-center justify-between">
-            <div>
-              <h1 className="text-xl font-bold text-[#F5F0EB]" style={{ fontFamily: "'Playfair Display', serif" }}>
+        <div className="max-w-7xl mx-auto px-4 sm:px-6 py-3 sm:py-4">
+          <div className="flex flex-wrap items-center justify-between gap-3">
+            <div className="min-w-0">
+              <h1 className="text-lg sm:text-xl font-bold text-[#F5F0EB]" style={{ fontFamily: "'Playfair Display', serif" }}>
                 回收站
               </h1>
               <p className="text-sm text-[#F5F0EB]/50 mt-1">
@@ -99,7 +99,7 @@ export default function RecycleBin() {
             {!empty && (
               <button
                 onClick={handleEmpty}
-                className="flex items-center gap-2 px-4 py-2 bg-red-500/20 border border-red-500/30 hover:bg-red-500/30 rounded-lg text-sm text-red-400 transition-colors"
+                className="flex items-center gap-2 px-3 sm:px-4 py-2 bg-red-500/20 border border-red-500/30 hover:bg-red-500/30 rounded-lg text-sm text-red-400 transition-colors shrink-0"
               >
                 <Trash2 size={16} />
                 <span>清空回收站</span>
@@ -109,7 +109,7 @@ export default function RecycleBin() {
         </div>
       </header>
 
-      <main className="max-w-7xl mx-auto px-6 py-8">
+      <main className="max-w-7xl mx-auto px-4 sm:px-6 py-6 sm:py-8">
         {loading ? (
           <div className="flex items-center justify-center py-20 text-[#F5F0EB]/50">加载中...</div>
         ) : empty ? (
@@ -134,7 +134,7 @@ export default function RecycleBin() {
                   {albums.map(album => (
                     <div
                       key={album.id}
-                      className="flex items-center justify-between p-4 rounded-xl bg-[#16213E]/50 border border-white/5"
+                      className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 p-4 rounded-xl bg-[#16213E]/50 border border-white/5"
                     >
                       <div className="flex items-center gap-4 min-w-0">
                         <div className="w-12 h-12 rounded-lg bg-white/5 flex items-center justify-center shrink-0">
@@ -148,17 +148,17 @@ export default function RecycleBin() {
                           </p>
                         </div>
                       </div>
-                      <div className="flex items-center gap-2 shrink-0">
+                      <div className="flex items-center gap-2 w-full sm:w-auto shrink-0">
                         <button
                           onClick={() => handleRestoreAlbum(album)}
-                          className="flex items-center gap-1.5 px-3 py-1.5 bg-[#5CE8A0]/15 border border-[#5CE8A0]/30 hover:bg-[#5CE8A0]/25 rounded-lg text-sm text-[#5CE8A0] transition-colors"
+                          className="flex-1 sm:flex-none flex items-center justify-center gap-1.5 px-3 py-2 sm:py-1.5 bg-[#5CE8A0]/15 border border-[#5CE8A0]/30 hover:bg-[#5CE8A0]/25 rounded-lg text-sm text-[#5CE8A0] transition-colors"
                         >
                           <RotateCcw size={14} />
                           <span>恢复</span>
                         </button>
                         <button
                           onClick={() => handlePurgeAlbum(album)}
-                          className="flex items-center gap-1.5 px-3 py-1.5 bg-red-500/15 border border-red-500/30 hover:bg-red-500/25 rounded-lg text-sm text-red-400 transition-colors"
+                          className="flex-1 sm:flex-none flex items-center justify-center gap-1.5 px-3 py-2 sm:py-1.5 bg-red-500/15 border border-red-500/30 hover:bg-red-500/25 rounded-lg text-sm text-red-400 transition-colors"
                         >
                           <Trash2 size={14} />
                           <span>彻底删除</span>
