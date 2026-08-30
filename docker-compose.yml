@@ -13,12 +13,14 @@ services:
     environment:
       - NODE_ENV=production
       - PORT=${PORT:-80}
-      - JWT_SECRET=${JWT_SECRET:-JWT_SECRET}
+      # 必须显式设置，避免使用弱默认值（backend 侧未设置时启动也会失败）
+      - JWT_SECRET=${JWT_SECRET:?请在 .env 中设置 JWT_SECRET（可用 openssl rand -hex 32 生成）}
       - UPLOAD_DIR=/app/uploads
       - DATABASE_PATH=/app/data/photo-album.sqlite
     volumes:
-      - /app/photo-album/data:/app/data
-      - /app/photo-album/uploads:/app/uploads
+      # 数据持久化到宿主机当前目录（README「数据持久化」一节与此对应）
+      - ./data:/app/data
+      - ./uploads:/app/uploads
     restart: unless-stopped
     healthcheck:
       test: ["CMD", "node", "-e", "require('http').get('http://127.0.0.1:'+process.env.PORT+'/api/health',r=>process.exit(r.statusCode===200?0:1)).on('error',()=>process.exit(1))"]

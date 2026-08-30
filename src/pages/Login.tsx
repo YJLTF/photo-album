@@ -28,7 +28,15 @@ export default function Login({ onLogin }: LoginProps) {
       localStorage.setItem("permission", response.permission);
       onLogin(response.token, response.permission);
     } catch (err) {
-      setError("访问密码无效，请重试");
+      const e = err as Error & { status?: number };
+      if (e.status === 401) {
+        setError("访问密码无效，请重试");
+      } else if (e.status === 429) {
+        setError("尝试过于频繁，请稍后再试");
+      } else {
+        // 网络错误等：展示 request() 抛出的友好信息
+        setError(e.message || "登录失败，请重试");
+      }
     } finally {
       setLoading(false);
     }

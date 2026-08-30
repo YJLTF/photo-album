@@ -1,12 +1,11 @@
 import { useState, useEffect, useCallback, useRef } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
 import { ArrowLeft, ArrowRight, X, Download, ZoomIn, ZoomOut, RotateCw } from 'lucide-react';
-import { imageApi, albumApi, type ImageItem } from '@/lib/api';
+import { imageApi, type ImageItem } from '@/lib/api';
 
 export default function ImagePreview() {
   const { imageId } = useParams();
   const navigate = useNavigate();
-  const imgRef = useRef<HTMLImageElement>(null);
 
   const [image, setImage] = useState<ImageItem | null>(null);
   const [imageUrl, setImageUrl] = useState('');
@@ -14,9 +13,12 @@ export default function ImagePreview() {
   const [currentIndex, setCurrentIndex] = useState(0);
   const [scale, setScale] = useState(1);
   const [rotation, setRotation] = useState(0);
+  const [error, setError] = useState(false);
   const [showControls, setShowControls] = useState(false);
 
   const hideTimerRef = useRef<number | null>(null);
+  // 当前展示中的 object URL，切换时释放旧的，卸载时释放最后的
+  const displayedUrlRef = useRef<string | null>(null);
 
   const resetHideTimer = useCallback(() => {
     if (hideTimerRef.current) clearTimeout(hideTimerRef.current);
@@ -33,85 +35,109 @@ export default function ImagePreview() {
     };
   }, [resetHideTimer]);
 
+  const showImage = useCallback(async (img: ImageItem) => {
+    const blob = await imageApi.getById(img.id);
+    const url = URL.createObjectURL(blob);
+    if (displayedUrlRef.current) URL.revokeObjectURL(displayedUrlRef.current);
+    displayedUrlRef.current = url;
+    setImage(img);
+    setImageUrl(url);
+  }, []);
+
   useEffect(() => {
-    const fetchData = async () => {
+    let cancelled = false;
+
+    const load = async () => {
       if (!imageId) return;
-
-      const [imgData, albums] = await Promise.all([
-        imageApi.getById(imageId),
-        albumApi.getAll(),
-      ]);
-
-      const url = URL.createObjectURL(imgData);
-      setImageUrl(url);
-
-      let currentImg: ImageItem | null = null;
-      let allImages: ImageItem[] = [];
-
-      for (const album of albums) {
-        const imgs = await imageApi.getByAlbum(album.id);
-        allImages = [...allImages, ...imgs];
-        if (imgs.some(i => i.id === imageId)) {
-          currentImg = imgs.find(i => i.id === imageId) || null;
-        }
+      try {
+        // 元数据接口反查所属相册，只需两个请求即可定位浏览上下文
+        const meta = await imageApi.getMeta(imageId);
+        const siblings = await imageApi.getByAlbum(meta.albumId);
+        const ordered = [...siblings].sort((a, b) =>
+          new Date(a.createdAt).getTime() - new Date(b.createdAt).getTime()
+        );
+        if (cancelled) return;
+        setAlbumImages(ordered);
+        setCurrentIndex(Math.max(ordered.findIndex(i => i.id === imageId), 0));
+        await showImage(meta);
+      } catch {
+        if (!cancelled) setError(true);
       }
-
-      if (currentImg) {
-        setImage(currentImg);
-        setAlbumImages(allImages.sort((a, b) => new Date(a.createdAt).getTime() - new Date(b.createdAt).getTime()));
-        setCurrentIndex(allImages.findIndex(i => i.id === imageId));
-      }
-
-      return () => {
-        URL.revokeObjectURL(url);
-      };
     };
 
-    fetchData();
-  }, [imageId]);
+    load();
 
-  const goNext = async () => {
+    return () => {
+      cancelled = true;
+      if (displayedUrlRef.current) {
+        URL.revokeObjectURL(displayedUrlRef.current);
+        displayedUrlRef.current = null;
+      }
+    };
+  }, [imageId, showImage]);
+
+  const goNext = useCallback(async () => {
+    if (albumImages.length === 0) return;
     const nextIndex = (currentIndex + 1) % albumImages.length;
     setCurrentIndex(nextIndex);
-    const nextImg = albumImages[nextIndex];
-    const blob = await imageApi.getById(nextImg.id);
-    setImageUrl(URL.createObjectURL(blob));
-    setImage(nextImg);
-  };
+    try {
+      await showImage(albumImages[nextIndex]);
+    } catch {
+      // 加载失败保持当前图，不打断浏览
+    }
+  }, [currentIndex, albumImages, showImage]);
 
-  const goPrev = async () => {
+  const goPrev = useCallback(async () => {
+    if (albumImages.length === 0) return;
     const prevIndex = (currentIndex - 1 + albumImages.length) % albumImages.length;
     setCurrentIndex(prevIndex);
-    const prevImg = albumImages[prevIndex];
-    const blob = await imageApi.getById(prevImg.id);
-    setImageUrl(URL.createObjectURL(blob));
-    setImage(prevImg);
-  };
+    try {
+      await showImage(albumImages[prevIndex]);
+    } catch {
+      // 同上
+    }
+  }, [currentIndex, albumImages, showImage]);
 
-  const zoomIn = () => setScale(prev => Math.min(prev + 0.25, 3));
-  const zoomOut = () => setScale(prev => Math.max(prev - 0.25, 0.5));
-  const resetZoom = () => { setScale(1); setRotation(0); };
-  const rotate = () => setRotation(prev => (prev + 90) % 360);
+  const zoomIn = useCallback(() => setScale(prev => Math.min(prev + 0.25, 3)), []);
+  const zoomOut = useCallback(() => setScale(prev => Math.max(prev - 0.25, 0.5)), []);
+  const resetZoom = useCallback(() => { setScale(1); setRotation(0); }, []);
+  const rotate = useCallback(() => setRotation(prev => (prev + 90) % 360), []);
 
-  const handleDownload = () => {
+  const handleDownload = useCallback(() => {
     const link = document.createElement('a');
     link.href = imageUrl;
     link.download = image?.name || 'image.jpg';
     link.click();
-  };
+  }, [imageUrl, image?.name]);
+
+  const exit = useCallback(() => navigate(-1), [navigate]);
 
   useEffect(() => {
     const handler = (e: KeyboardEvent) => {
       if (e.key === 'ArrowRight') { e.preventDefault(); goNext(); }
       else if (e.key === 'ArrowLeft') { e.preventDefault(); goPrev(); }
-      else if (e.key === 'Escape') navigate(-1);
+      else if (e.key === 'Escape') exit();
       else if (e.key === '+') { e.preventDefault(); zoomIn(); }
       else if (e.key === '-') { e.preventDefault(); zoomOut(); }
       else if (e.key === '0') { e.preventDefault(); resetZoom(); }
     };
     window.addEventListener('keydown', handler);
     return () => window.removeEventListener('keydown', handler);
-  }, [currentIndex, albumImages, navigate]);
+  }, [goNext, goPrev, zoomIn, zoomOut, resetZoom, exit]);
+
+  if (error) {
+    return (
+      <div className="fixed inset-0 bg-black flex flex-col items-center justify-center gap-4 text-white/60">
+        <p>图片不存在或已被删除</p>
+        <button
+          onClick={exit}
+          className="px-4 py-2 bg-white/10 hover:bg-white/20 rounded-lg text-white transition-colors"
+        >
+          返回
+        </button>
+      </div>
+    );
+  }
 
   if (!image || !imageUrl) {
     return (
@@ -126,7 +152,6 @@ export default function ImagePreview() {
       {/* Image */}
       <div className="w-full h-full flex items-center justify-center overflow-hidden">
         <img
-          ref={imgRef}
           src={imageUrl}
           alt={image.name}
           className="max-w-full max-h-full object-contain transition-transform duration-200"
@@ -144,7 +169,7 @@ export default function ImagePreview() {
             {image.name}
           </div>
           <button
-            onClick={() => navigate(-1)}
+            onClick={exit}
             className="p-2 rounded-lg bg-white/10 hover:bg-white/20 text-white transition-colors"
           >
             <X size={20} />

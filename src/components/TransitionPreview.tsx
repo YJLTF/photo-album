@@ -8,6 +8,7 @@ interface TransitionPreviewProps {
   compact?: boolean;
 }
 
+// keyframes 统一定义在 index.css，这里只负责拼 class
 const effectStyles: Record<TransitionEffect, { enter: string; exit: string }> = {
   fade: {
     enter: "animate-[fadeIn_0.6s_ease-in-out_forwards]",
@@ -35,10 +36,10 @@ export default function TransitionPreview({ effect, compact }: TransitionPreview
   const [showFirst, setShowFirst] = useState(true);
 
   useEffect(() => {
-    const interval = setInterval(() => {
+    const timer = window.setInterval(() => {
       setShowFirst((prev) => !prev);
     }, 1500);
-    return () => clearInterval(interval);
+    return () => clearInterval(timer);
   }, []);
 
   const styles = effectStyles[effect];
@@ -58,18 +59,6 @@ export default function TransitionPreview({ effect, compact }: TransitionPreview
             !showFirst ? styles.enter : styles.exit
           )}
         />
-        <style>{`
-          @keyframes fadeIn { from { opacity: 0; } to { opacity: 1; } }
-          @keyframes fadeOut { from { opacity: 1; } to { opacity: 0; } }
-          @keyframes slideIn { from { transform: translateX(100%); opacity: 0; } to { transform: translateX(0); opacity: 1; } }
-          @keyframes slideOut { from { transform: translateX(0); opacity: 1; } to { transform: translateX(-100%); opacity: 0; } }
-          @keyframes zoomIn { from { transform: scale(0.3); opacity: 0; } to { transform: scale(1); opacity: 1; } }
-          @keyframes zoomOut { from { transform: scale(1); opacity: 1; } to { transform: scale(1.5); opacity: 0; } }
-          @keyframes flipIn { from { transform: rotateY(90deg); opacity: 0; } to { transform: rotateY(0); opacity: 1; } }
-          @keyframes flipOut { from { transform: rotateY(0); opacity: 1; } to { transform: rotateY(-90deg); opacity: 0; } }
-          @keyframes blurIn { from { filter: blur(8px); opacity: 0; } to { filter: blur(0); opacity: 1; } }
-          @keyframes blurOut { from { filter: blur(0); opacity: 1; } to { filter: blur(8px); opacity: 0; } }
-        `}</style>
       </div>
     );
   }
@@ -90,19 +79,6 @@ export default function TransitionPreview({ effect, compact }: TransitionPreview
           )}
         />
       </div>
-
-      <style>{`
-        @keyframes fadeIn { from { opacity: 0; } to { opacity: 1; } }
-        @keyframes fadeOut { from { opacity: 1; } to { opacity: 0; } }
-        @keyframes slideIn { from { transform: translateX(100%); opacity: 0; } to { transform: translateX(0); opacity: 1; } }
-        @keyframes slideOut { from { transform: translateX(0); opacity: 1; } to { transform: translateX(-100%); opacity: 0; } }
-        @keyframes zoomIn { from { transform: scale(0.3); opacity: 0; } to { transform: scale(1); opacity: 1; } }
-        @keyframes zoomOut { from { transform: scale(1); opacity: 1; } to { transform: scale(1.5); opacity: 0; } }
-        @keyframes flipIn { from { transform: rotateY(90deg); opacity: 0; } to { transform: rotateY(0); opacity: 1; } }
-        @keyframes flipOut { from { transform: rotateY(0); opacity: 1; } to { transform: rotateY(-90deg); opacity: 0; } }
-        @keyframes blurIn { from { filter: blur(12px); opacity: 0; } to { filter: blur(0); opacity: 1; } }
-        @keyframes blurOut { from { filter: blur(0); opacity: 1; } to { filter: blur(12px); opacity: 0; } }
-      `}</style>
     </div>
   );
 }

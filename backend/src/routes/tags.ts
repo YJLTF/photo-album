@@ -2,99 +2,127 @@ import { Router } from "express";
 import { AppDataSource } from "../data-source";
 import { Tag } from "../entity/Tag";
 import { ImageTag } from "../entity/ImageTag";
+import { Image } from "../entity/Image";
 import { authenticate, requirePermission } from "../middleware/auth";
-import { PermissionLevel } from "../entity/AccessKey";
+import { asyncHandler } from "../middleware/asyncHandler";
+import { HttpError } from "../httpError";
 import { In } from "typeorm";
 
 const router = Router();
 
-router.get("/", authenticate, async (req, res) => {
-  const tags = await AppDataSource.getRepository(Tag).find();
-  res.json(tags);
-});
+const tagRepo = () => AppDataSource.getRepository(Tag);
+const imageTagRepo = () => AppDataSource.getRepository(ImageTag);
+const imageRepo = () => AppDataSource.getRepository(Image);
 
-router.get("/image/:imageId", authenticate, async (req, res) => {
-  const imageId = String(req.params.imageId);
-  const imageTags = await AppDataSource.getRepository(ImageTag).find({ where: { imageId } });
-  const tagIds = imageTags.map(it => it.tagId);
-  
-  if (tagIds.length === 0) {
-    return res.json([]);
+const tagsForImageIds = async (imageIds: string[]): Promise<Record<string, Tag[]>> => {
+  const map: Record<string, Tag[]> = {};
+  if (imageIds.length === 0) return map;
+
+  const links = await imageTagRepo().find({ where: { imageId: In(imageIds) } });
+  const tagIds = [...new Set(links.map(l => l.tagId))];
+  if (tagIds.length === 0) return map;
+
+  const tags = await tagRepo().find({ where: { id: In(tagIds) } });
+  const tagById = new Map(tags.map(t => [t.id, t]));
+  for (const link of links) {
+    const tag = tagById.get(link.tagId);
+    if (tag) {
+      (map[link.imageId] ||= []).push(tag);
+    }
   }
-  
-  const tags = await AppDataSource.getRepository(Tag).find({ 
-    where: { id: In(tagIds) }
-  });
-  res.json(tags);
-});
+  return map;
+};
 
-router.post("/", authenticate, requirePermission("editor"), async (req, res) => {
+router.get("/", authenticate, asyncHandler(async (req, res) => {
+  res.json(await tagRepo().find());
+}));
+
+// 全量 imageId -> 标签列表 的映射（标签筛选页一次拉齐，避免逐图请求）
+router.get("/image-map", authenticate, asyncHandler(async (req, res) => {
+  const images = await imageRepo().find({ select: ["id"] });
+  res.json(await tagsForImageIds(images.map(i => i.id)));
+}));
+
+// 指定相册内 imageId -> 标签列表 的映射
+router.get("/album/:albumId", authenticate, asyncHandler(async (req, res) => {
+  const images = await imageRepo().find({
+    where: { albumId: String(req.params.albumId) },
+    select: ["id"],
+  });
+  res.json(await tagsForImageIds(images.map(i => i.id)));
+}));
+
+router.get("/image/:imageId", authenticate, asyncHandler(async (req, res) => {
+  const map = await tagsForImageIds([String(req.params.imageId)]);
+  res.json(map[String(req.params.imageId)] ?? []);
+}));
+
+router.post("/", authenticate, requirePermission("editor"), asyncHandler(async (req, res) => {
   const { name, color } = req.body;
 
-  if (!name) {
-    return res.status(400).json({ message: "Tag name is required" });
+  const trimmed = typeof name === "string" ? name.trim() : "";
+  if (!trimmed) {
+    throw new HttpError(400, "Tag name is required");
   }
 
-  const existing = await AppDataSource.getRepository(Tag).findOne({ where: { name } });
+  const existing = await tagRepo().findOne({ where: { name: trimmed } });
   if (existing) {
-    return res.status(409).json({ message: "Tag already exists" });
+    throw new HttpError(409, "Tag already exists");
   }
 
   const tag = new Tag();
-  tag.name = name;
+  tag.name = trimmed;
   tag.color = color || "#E8845C";
 
-  await AppDataSource.getRepository(Tag).save(tag);
+  await tagRepo().save(tag);
   res.status(201).json(tag);
-});
+}));
 
-router.post("/image/:imageId", authenticate, requirePermission("editor"), async (req, res) => {
+router.post("/image/:imageId", authenticate, requirePermission("editor"), asyncHandler(async (req, res) => {
   const imageId = String(req.params.imageId);
   const { tagId } = req.body;
 
   if (!tagId) {
-    return res.status(400).json({ message: "Tag ID is required" });
+    throw new HttpError(400, "Tag ID is required");
   }
 
-  const existing = await AppDataSource.getRepository(ImageTag).findOne({ where: { imageId, tagId } });
+  const existing = await imageTagRepo().findOne({ where: { imageId, tagId } });
   if (existing) {
-    return res.status(409).json({ message: "Tag already added to image" });
+    throw new HttpError(409, "Tag already added to image");
   }
 
   const imageTag = new ImageTag();
   imageTag.imageId = imageId;
   imageTag.tagId = String(tagId);
 
-  await AppDataSource.getRepository(ImageTag).save(imageTag);
+  await imageTagRepo().save(imageTag);
   res.status(201).json(imageTag);
-});
+}));
 
-router.delete("/:id", authenticate, requirePermission("editor"), async (req, res) => {
+router.delete("/:id", authenticate, requirePermission("editor"), asyncHandler(async (req, res) => {
   const id = String(req.params.id);
 
-  const tag = await AppDataSource.getRepository(Tag).findOne({ where: { id } });
+  const tag = await tagRepo().findOne({ where: { id } });
   if (!tag) {
-    return res.status(404).json({ message: "Tag not found" });
+    throw new HttpError(404, "Tag not found");
   }
 
-  // 首先显式删除所有关联的 ImageTag 记录
-  await AppDataSource.getRepository(ImageTag).delete({ tagId: id });
-  // 然后删除标签
-  await AppDataSource.getRepository(Tag).delete(id);
-  
-  res.json({ message: "Tag deleted" });
-});
+  await imageTagRepo().delete({ tagId: id });
+  await tagRepo().delete(id);
 
-router.delete("/image/:imageId/:tagId", authenticate, requirePermission("editor"), async (req, res) => {
+  res.json({ message: "Tag deleted" });
+}));
+
+router.delete("/image/:imageId/:tagId", authenticate, requirePermission("editor"), asyncHandler(async (req, res) => {
   const imageId = String(req.params.imageId);
   const tagId = String(req.params.tagId);
 
-  const result = await AppDataSource.getRepository(ImageTag).delete({ imageId, tagId });
+  const result = await imageTagRepo().delete({ imageId, tagId });
   if (result.affected === 0) {
-    return res.status(404).json({ message: "Image tag not found" });
+    throw new HttpError(404, "Image tag not found");
   }
 
   res.json({ message: "Tag removed from image" });
-});
+}));
 
 export default router;

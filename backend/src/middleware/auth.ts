@@ -47,14 +47,17 @@ export const authenticate = async (req: Request, res: Response, next: NextFuncti
 export const requirePermission = (requiredPermission: PermissionLevel) => {
   return (req: Request, res: Response, next: NextFunction) => {
     const permission = (req as AuthenticatedRequest).permission;
-    
+
     const permissionOrder: Record<PermissionLevel, number> = {
       viewer: 1,
       editor: 2,
       admin: 3
     };
 
-    if (!permission || permissionOrder[permission] < permissionOrder[requiredPermission]) {
+    // 未知权限值按最低权限处理，避免 undefined 比较导致绕过校验
+    const level = permission ? permissionOrder[permission] ?? 0 : 0;
+
+    if (level < permissionOrder[requiredPermission]) {
       return res.status(403).json({ message: "Insufficient permissions" });
     }
 

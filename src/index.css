@@ -1,11 +1,9 @@
-@import url('https://fonts.googleapis.com/css2?family=Playfair+Display:wght@400;600;700&family=DM+Sans:wght@300;400;500;600;700&display=swap');
-
 @tailwind base;
 @tailwind components;
 @tailwind utilities;
 
 :root {
-  font-family: "DM Sans", -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+  font-family: "DM Sans", -apple-system, BlinkMacSystemFont, "Segoe UI", "PingFang SC", "Microsoft YaHei", sans-serif;
   line-height: 1.5;
   font-weight: 400;
   font-synthesis: none;
@@ -43,33 +41,25 @@ h1, h2, h3, h4, h5, h6 {
   background: rgba(232, 132, 92, 0.5);
 }
 
-/* Glow animation for upload zone */
-@keyframes glow-pulse {
-  0%, 100% { box-shadow: 0 0 5px rgba(232, 132, 92, 0.2); }
-  50% { box-shadow: 0 0 20px rgba(232, 132, 92, 0.4); }
+/* Modal 动画 */
+@keyframes modal-in {
+  from { opacity: 0; transform: scale(0.95) translateY(8px); }
+  to { opacity: 1; transform: scale(1) translateY(0); }
 }
 
-.glow-animation {
-  animation: glow-pulse 1.5s ease-in-out infinite;
+@keyframes modal-backdrop-in {
+  from { opacity: 0; }
+  to { opacity: 1; }
 }
 
-/* Slide transition animations */
-@keyframes slide-in-right {
-  from { transform: translateX(100%); opacity: 0; }
-  to { transform: translateX(0); opacity: 1; }
-}
-
-@keyframes slide-out-left {
-  from { transform: translateX(0); opacity: 1; }
-  to { transform: translateX(-100%); opacity: 0; }
-}
-
-@keyframes flip-in {
-  from { transform: rotateY(-90deg); opacity: 0; }
-  to { transform: rotateY(0); opacity: 1; }
-}
-
-@keyframes blur-in {
-  from { filter: blur(20px); opacity: 0; }
-  to { filter: blur(0); opacity: 1; }
-}
+/* 转场效果预览动画（TransitionPreview 使用） */
+@keyframes fadeIn { from { opacity: 0; } to { opacity: 1; } }
+@keyframes fadeOut { from { opacity: 1; } to { opacity: 0; } }
+@keyframes slideIn { from { transform: translateX(100%); opacity: 0; } to { transform: translateX(0); opacity: 1; } }
+@keyframes slideOut { from { transform: translateX(0); opacity: 1; } to { transform: translateX(-100%); opacity: 0; } }
+@keyframes zoomIn { from { transform: scale(0.3); opacity: 0; } to { transform: scale(1); opacity: 1; } }
+@keyframes zoomOut { from { transform: scale(1); opacity: 1; } to { transform: scale(1.5); opacity: 0; } }
+@keyframes flipIn { from { transform: rotateY(90deg); opacity: 0; } to { transform: rotateY(0); opacity: 1; } }
+@keyframes flipOut { from { transform: rotateY(0); opacity: 1; } to { transform: rotateY(-90deg); opacity: 0; } }
+@keyframes blurIn { from { filter: blur(8px); opacity: 0; } to { filter: blur(0); opacity: 1; } }
+@keyframes blurOut { from { filter: blur(0); opacity: 1; } to { filter: blur(8px); opacity: 0; } }

@@ -45,11 +45,10 @@
 - **图标**：Lucide React
 
 ### 后端
-- **框架**：Express + TypeScript
+- **框架**：Express 4 + TypeScript
 - **数据库**：SQLite + TypeORM
-- **认证**：JWT（jsonwebtoken + bcrypt）
-- **文件上传**：Multer
-- **校验**：Zod
+- **认证**：JWT（jsonwebtoken；访问密钥明文存储于数据库，请务必使用强密钥）
+- **文件上传**：Multer 2（仅允许图片格式，单文件最大 20MB）
 
 ## 快速开始
 
@@ -67,6 +66,7 @@ npm start
 ```
 
 默认运行在 `http://localhost:3001`（可通过 `backend/.env` 中的 `PORT` 覆盖）。
+后端需要在 `backend/.env` 中设置 `JWT_SECRET`，未设置时启动会直接失败。
 
 > 首次启动会自动在 `data/photo-album.sqlite` 创建数据库，并插入默认管理员密钥 `admin123`。**生产环境请立即修改或删除。**
 
@@ -77,7 +77,11 @@ npm install
 npm run dev
 ```
 
-默认运行在 `http://localhost:5173`。若后端端口非 3001，可通过根目录 `.env` 中的 `VITE_API_URL` 覆盖。
+默认运行在 `http://localhost:5173`。若后端端口非 3001，通过根目录 `.env` 中的 `VITE_API_URL` 覆盖，例如后端跑在 3002 时：
+
+```
+VITE_API_URL=http://localhost:3002/api
+```
 
 ### 3. 登录
 
@@ -123,7 +127,7 @@ npm run dev
    docker-compose logs -f
    ```
 
-3. 浏览器访问 `http://localhost:3001`，使用首次启动自动生成的密钥 `admin123` 登录（**登录后请立即在「访问密钥」页面修改或新增**）。
+3. 浏览器访问 `http://localhost`（默认端口 80，即 `.env` 中的 `PORT`），使用首次启动自动生成的密钥 `admin123` 登录（**登录后请立即在「访问密钥」页面修改或新增**）。
 
 ### 常用命令
 
@@ -138,9 +142,39 @@ docker-compose down -v    # 同时清除数据卷（会丢数据！）
 docker-compose up -d --build  # 重新构建镜像后启动
 ```
 
+### 一键部署到正式环境
+
+本地构建镜像 → 导出 tar.gz → scp 上传 → 服务器 `docker load` → `docker compose` 重建容器 → 健康检查通过后自动清理旧镜像与临时文件，一条命令完成：
+
+```bash
+./deploy.sh
+```
+
+首次使用前配置一次 SSH 免密：
+
+```bash
+cp .deploy.env.example .deploy.env   # 填入服务器 SSH 密码（已被 .gitignore 忽略）
+./deploy.sh init                     # 自动安装公钥；成功后 .deploy.env 可删除
+```
+
+其他子命令：
+
+```bash
+./deploy.sh status   # 查看服务器容器 / 镜像 / 磁盘状态
+./deploy.sh logs     # 跟随查看服务器日志（Ctrl+C 退出）
+./deploy.sh build    # 仅本地构建镜像
+```
+
+说明：
+
+- 目标服务器、路径等参数在 `deploy.sh` 顶部，可用环境变量 `DEPLOY_HOST` / `DEPLOY_USER` / `DEPLOY_DIR` / `DEPLOY_IMAGE` 覆盖。
+- 服务器上的 `.env`（含 `JWT_SECRET`）由服务器自行维护，部署脚本不会覆盖；`docker-compose.yml` 每次部署同步为仓库版本。
+- 前端构建的 `VITE_API_URL` 取自**服务器** env 配置，避免把本地开发地址（localhost）打进生产镜像。
+- 健康检查未通过时不删除旧镜像，可按脚本输出的命令手动回滚。
+
 ### 数据持久化
 
-通过卷挂载到宿主机：
+通过卷挂载到宿主机（docker-compose.yml 中定义，位于项目根目录）：
 
 - `./data` → 容器 `/app/data`（SQLite 数据库）
 - `./uploads` → 容器 `/app/uploads`（上传的图片文件）
@@ -149,9 +183,11 @@ docker-compose up -d --build  # 重新构建镜像后启动
 
 | 变量 | 说明 | 必填 | 默认 |
 |------|------|------|------|
-| `PORT` | 服务监听 / 宿主机映射端口 | 否 | `3001` |
-| `JWT_SECRET` | JWT 签名密钥 | **是** | （无默认，未设置时启动失败） |
+| `PORT` | 服务监听 / 宿主机映射端口 | 否 | 后端 `3001`；docker-compose 默认 `80` |
+| `JWT_SECRET` | JWT 签名密钥 | **是** | （无默认；后端未设置时启动失败，compose 未设置时拒绝启动） |
 | `VITE_API_URL` | 前端构建时使用的 API 地址；留空则使用相对路径 `/api`（同源部署）。跨域时填完整 URL | 否 | `/api` |
+| `DATABASE_PATH` | SQLite 数据库文件路径 | 否 | `./data/photo-album.sqlite` |
+| `UPLOAD_DIR` | 上传图片存储目录 | 否 | `./uploads` |
 
 修改 `.env` 后需要 `docker-compose up -d --build` 重新构建（仅 `VITE_API_URL` 影响前端构建产物；`PORT` / `JWT_SECRET` 在容器启动时读取）。
 
@@ -177,7 +213,10 @@ photo-album/
 │   │   │   ├── tags.ts
 │   │   │   └── slideshows.ts
 │   │   ├── middleware/auth.ts
+│   │   ├── middleware/asyncHandler.ts
 │   │   ├── data-source.ts
+│   │   ├── httpError.ts
+│   │   ├── storage.ts
 │   │   └── index.ts
 │   ├── data/                         # SQLite 数据库文件（运行时生成）
 │   └── uploads/                      # 上传图片存储（运行时生成）
@@ -191,8 +230,7 @@ photo-album/
 │   │   ├── TransitionPreview.tsx
 │   │   ├── Modal.tsx
 │   │   ├── Layout.tsx
-│   │   ├── Sidebar.tsx
-│   │   └── Empty.tsx
+│   │   └── Sidebar.tsx
 │   ├── pages/
 │   │   ├── Login.tsx
 │   │   ├── Home.tsx                  # 相册列表主页
@@ -202,13 +240,10 @@ photo-album/
 │   │   ├── SlideshowEdit.tsx
 │   │   ├── SlideshowPlay.tsx
 │   │   └── AccessKeys.tsx            # 访问密钥管理（ADMIN）
-│   ├── hooks/useTheme.ts
 │   ├── lib/
-│   │   ├── api.ts                    # API 封装
-│   │   ├── types.ts
-│   │   ├── utils.ts
-│   │   ├── db.ts                     # IndexedDB 工具（当前未使用，预留给离线）
-│   │   └── store.ts                  # Dexie 封装（同上）
+│   │   ├── api.ts                    # API 封装（含类型定义与 401 全局处理）
+│   │   ├── constants.ts              # 共享常量（权限文案、标签调色板、转场文案）
+│   │   └── utils.ts
 │   ├── App.tsx
 │   └── main.tsx
 ├── docker-compose.yml
@@ -228,29 +263,33 @@ photo-album/
 
 ## API 一览
 
-所有接口以 `/api` 为前缀，需在 Header 携带 `Authorization: Bearer <token>`（除登录接口外）。
+所有接口以 `/api` 为前缀，需在 Header 携带 `Authorization: Bearer <token>`（除登录接口外；图片文件接口也支持 `?token=` 查询参数）。
 
-| 模块 | 路径 | 方法 | 权限 |
-|------|------|------|------|
-| 认证 | `/auth/login` | POST | 公开 |
-| 认证 | `/auth/validate` | POST | 任意已登录 |
-| 密钥 | `/access-keys` | GET / POST | GET 任意 / POST ADMIN |
-| 密钥 | `/access-keys/:id` | PUT / DELETE | ADMIN |
-| 密钥 | `/access-keys/:id/key` | PATCH | ADMIN |
-| 相册 | `/albums` | GET / POST | GET 任意 / POST EDITOR+ |
-| 相册 | `/albums/:id` | GET / PUT / DELETE | GET 任意 / 写 EDITOR+ |
-| 图片 | `/images/album/:albumId` | GET | 任意 |
-| 图片 | `/images/:id` | GET（文件） | 任意 |
-| 图片 | `/images` | POST | EDITOR+ |
-| 图片 | `/images/:id` | DELETE | EDITOR+ |
-| 标签 | `/tags` | GET | 任意 |
-| 标签 | `/tags/image/:imageId` | GET | 任意 |
-| 标签 | `/tags` | POST | EDITOR+ |
-| 标签 | `/tags/image/:imageId` | POST | EDITOR+ |
-| 标签 | `/tags/:id` | DELETE | EDITOR+ |
-| 标签 | `/tags/image/:imageId/:tagId` | DELETE | EDITOR+ |
-| 轮播 | `/slideshows` | GET / POST | GET 任意 / POST EDITOR+ |
-| 轮播 | `/slideshows/:id` | GET / PUT / DELETE | GET 任意 / 写 EDITOR+ |
+| 模块 | 路径 | 方法 | 权限 | 说明 |
+|------|------|------|------|------|
+| 认证 | `/auth/login` | POST | 公开（限流） | 同一 IP 5 分钟内最多失败 10 次 |
+| 认证 | `/auth/validate` | POST | 任意已登录 | |
+| 密钥 | `/access-keys` | GET / POST | ADMIN | |
+| 密钥 | `/access-keys/:id` | PUT / DELETE | ADMIN | 不能禁用/删除最后一个启用的管理员密钥 |
+| 密钥 | `/access-keys/:id/key` | PATCH | ADMIN 或本人 | 修改自己的密钥后旧 token 失效，需重新登录 |
+| 相册 | `/albums` | GET / POST | GET 任意 / POST EDITOR+ | 列表每项含 `imageCount` |
+| 相册 | `/albums/:id` | GET / PUT / DELETE | GET 任意 / 写 EDITOR+ | 删除相册会级联清理图片文件与轮播引用 |
+| 图片 | `/images` | GET | 任意 | 全部图片（标签筛选页用） |
+| 图片 | `/images/recent?limit=8` | GET | 任意 | 最近上传 |
+| 图片 | `/images/album/:albumId` | GET | 任意 | |
+| 图片 | `/images/:id/meta` | GET | 任意 | 图片元数据（JSON） |
+| 图片 | `/images/:id` | GET | 任意 | 图片文件本体（带一天浏览器缓存头） |
+| 图片 | `/images` | POST | EDITOR+ | 仅图片格式，单文件 ≤ 20MB |
+| 图片 | `/images/:id` | DELETE | EDITOR+ | 同时清理物理文件与轮播引用 |
+| 标签 | `/tags` | GET / POST | GET 任意 / POST EDITOR+ | |
+| 标签 | `/tags/image-map` | GET | 任意 | 全量 imageId → 标签列表映射 |
+| 标签 | `/tags/album/:albumId` | GET | 任意 | 相册内 imageId → 标签列表映射 |
+| 标签 | `/tags/image/:imageId` | GET | 任意 | |
+| 标签 | `/tags/image/:imageId` | POST | EDITOR+ | |
+| 标签 | `/tags/:id` | DELETE | EDITOR+ | |
+| 标签 | `/tags/image/:imageId/:tagId` | DELETE | EDITOR+ | |
+| 轮播 | `/slideshows` | GET / POST | GET 任意 / POST EDITOR+ | 列表每项含 `imageCount` |
+| 轮播 | `/slideshows/:id` | GET / PUT / DELETE | GET 任意 / 写 EDITOR+ | |
 
 ## 设计风格
 
@@ -261,10 +300,13 @@ photo-album/
 
 ## 数据自动维护
 
-后端在以下场景会自动维护相册封面的合法性，**不需要客户端介入**：
+后端在以下场景自动维护数据一致性，**不需要客户端介入**：
 
 - 上传图片时：若相册无封面且这是首张图，自动设为封面
-- （客户端 `handleDeleteImage` 同样会处理封面顺延 / 清空）
+- 删除图片时：同时删除磁盘上的物理文件，并清理引用该图的轮播条目
+- 删除相册时：批量删除相册内所有图片记录与物理文件，并清理轮播引用
+- 删除标签时：清理所有图片与该标签的关联
+- （客户端在删除封面图时同样会处理封面顺延 / 清空）
 
 ## 核心流程
 

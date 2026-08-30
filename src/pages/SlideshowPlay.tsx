@@ -1,7 +1,12 @@
 import { useState, useEffect, useCallback, useRef } from 'react';
 import { useSearchParams, useNavigate } from 'react-router-dom';
-import { ChevronLeft, ChevronRight, Volume2, VolumeX, RotateCcw } from 'lucide-react';
-import { slideshowApi, imageApi, albumApi, type SlideshowWithImages, type ImageItem } from '@/lib/api';
+import { ChevronLeft, ChevronRight, RotateCcw } from 'lucide-react';
+import { slideshowApi, imageApi, type SlideshowWithImages, type SlideshowImageItem } from '@/lib/api';
+
+interface PlayableSlide {
+  id: string;
+  url: string;
+}
 
 export default function SlideshowPlay() {
   const [params] = useSearchParams();
@@ -10,11 +15,10 @@ export default function SlideshowPlay() {
   const albumId = params.get('albumId');
 
   const [currentSlideshow, setCurrentSlideshow] = useState<SlideshowWithImages | null>(null);
-  const [images, setImages] = useState<ImageItem[]>([]);
-  const [imageUrls, setImageUrls] = useState<Record<string, string>>({});
+  const [slides, setSlides] = useState<PlayableSlide[]>([]);
   const [currentIndex, setCurrentIndex] = useState(0);
   const [isPlaying, setIsPlaying] = useState(true);
-  const [isMuted, setIsMuted] = useState(true);
+  const [error, setError] = useState('');
   const [showControls, setShowControls] = useState(false);
   const [transitionClass, setTransitionClass] = useState('');
 
@@ -45,114 +49,145 @@ export default function SlideshowPlay() {
   }, [currentSlideshow]);
 
   useEffect(() => {
+    let cancelled = false;
+    // 本次运行创建的 object URL 统一记录，仅在清理时释放，
+    // 不能把 imageUrls state 放进依赖数组（会导致"设置状态→重跑→吊销在显 URL"的死循环）
+    const createdUrls: string[] = [];
+
+    const loadImage = async (id: string) => {
+      const blob = await imageApi.getById(id);
+      const url = URL.createObjectURL(blob);
+      createdUrls.push(url);
+      return url;
+    };
+
     const fetchData = async () => {
-      if (slideshowId) {
-        const slideshow = await slideshowApi.getById(slideshowId);
-        setCurrentSlideshow(slideshow);
-        
-        const urls: Record<string, string> = {};
-        const imgData: ImageItem[] = [];
-        
-        for (const slide of slideshow.images) {
-          const blob = await imageApi.getById(slide.imageId);
-          const url = URL.createObjectURL(blob);
-          urls[slide.imageId] = url;
-          imgData.push({ id: slide.imageId, albumId: '', name: '', filePath: '', fileSize: 0, width: 0, height: 0, mimeType: '', createdAt: '' });
+      try {
+        if (slideshowId) {
+          const slideshow = await slideshowApi.getById(slideshowId);
+          // 图片可能已被删除（404），逐张容错跳过而不是让整页卡死
+          const results = await Promise.allSettled(
+            slideshow.images.map(s => loadImage(s.imageId).then(url => ({ id: s.imageId, url })))
+          );
+          const playable = results
+            .filter((r): r is PromiseFulfilledResult<PlayableSlide> => r.status === 'fulfilled')
+            .map(r => r.value);
+
+          if (cancelled) return;
+          if (playable.length === 0) {
+            setError('轮播中的图片都已被删除');
+            return;
+          }
+
+          setCurrentSlideshow(slideshow);
+          setSlides(playable);
+        } else if (albumId) {
+          const albumImages = await imageApi.getByAlbum(albumId);
+          if (albumImages.length === 0) {
+            setError('相册中没有图片');
+            return;
+          }
+          const results = await Promise.allSettled(
+            albumImages.map(img => loadImage(img.id).then(url => ({ id: img.id, url })))
+          );
+          const playable = results
+            .filter((r): r is PromiseFulfilledResult<PlayableSlide> => r.status === 'fulfilled')
+            .map(r => r.value);
+
+          if (cancelled) return;
+          if (playable.length === 0) {
+            setError('图片加载失败');
+            return;
+          }
+
+          setCurrentSlideshow({
+            id: 'album',
+            name: '相册轮播',
+            transitionEffect: 'fade',
+            interval: 3,
+            autoPlay: true,
+            createdAt: new Date().toISOString(),
+            images: albumImages.map((img, idx): SlideshowImageItem => ({
+              id: img.id,
+              slideshowId: 'album',
+              imageId: img.id,
+              order: idx,
+              overlayText: '',
+              textPosition: 'bottom-center',
+              textColor: '#FFFFFF',
+              textSize: 16,
+            })),
+          });
+          setSlides(playable);
+        } else {
+          setError('缺少轮播或相册参数');
         }
-        
-        setImageUrls(urls);
-        setImages(imgData);
-      } else if (albumId) {
-        const albumImages = await imageApi.getByAlbum(albumId);
-        const urls: Record<string, string> = {};
-        
-        for (const img of albumImages) {
-          const blob = await imageApi.getById(img.id);
-          urls[img.id] = URL.createObjectURL(blob);
-        }
-        
-        setImageUrls(urls);
-        setImages(albumImages);
-        setCurrentSlideshow({
-          id: 'album',
-          name: '相册轮播',
-          transitionEffect: 'fade',
-          interval: 3,
-          autoPlay: true,
-          createdAt: new Date().toISOString(),
-          images: albumImages.map((img, idx) => ({
-            id: img.id,
-            slideshowId: 'album',
-            imageId: img.id,
-            order: idx,
-            overlayText: '',
-            textPosition: 'bottom-center',
-            textColor: '#FFFFFF',
-            textSize: 16,
-          })),
-        });
+      } catch {
+        if (!cancelled) setError('加载失败，请稍后重试');
       }
     };
 
     fetchData();
 
     return () => {
-      Object.values(imageUrls).forEach(url => URL.revokeObjectURL(url));
+      cancelled = true;
+      createdUrls.forEach(url => URL.revokeObjectURL(url));
     };
-  }, [slideshowId, albumId, imageUrls]);
-
-  useEffect(() => {
-    if (!currentSlideshow || !currentSlideshow.autoPlay || !isPlaying || images.length === 0) return;
-
-    const interval = setInterval(() => {
-      goNext();
-    }, currentSlideshow.interval * 1000);
-
-    return () => clearInterval(interval);
-  }, [currentSlideshow?.interval, currentSlideshow?.autoPlay, isPlaying, images.length]);
+  }, [slideshowId, albumId]);
 
   const goNext = useCallback(() => {
     const currentEffect = effectRef.current;
     setTransitionClass(`${currentEffect}-out`);
     setTimeout(() => {
-      setCurrentIndex(prev => (prev + 1) % images.length);
+      setCurrentIndex(prev => (prev + 1) % slides.length);
       setTransitionClass(`${currentEffect}-in`);
     }, 300);
-  }, [images.length]);
+  }, [slides.length]);
 
   const goPrev = useCallback(() => {
     const currentEffect = effectRef.current;
     setTransitionClass(`${currentEffect}-out`);
     setTimeout(() => {
-      setCurrentIndex(prev => (prev - 1 + images.length) % images.length);
+      setCurrentIndex(prev => (prev - 1 + slides.length) % slides.length);
       setTransitionClass(`${currentEffect}-in`);
     }, 300);
-  }, [images.length]);
+  }, [slides.length]);
+
+  // 自动播放定时器（依赖 goNext，需在 goNext 定义之后）
+  useEffect(() => {
+    if (!currentSlideshow || !currentSlideshow.autoPlay || !isPlaying || slides.length === 0) return;
+
+    const timer = window.setInterval(() => {
+      goNext();
+    }, currentSlideshow.interval * 1000);
+
+    return () => clearInterval(timer);
+  }, [currentSlideshow, isPlaying, slides.length, goNext]);
 
   const getTransitionStyle = (effect: string, className: string) => {
     switch (effect) {
       case 'fade':
         return { opacity: className.includes('out') ? 0 : 1, transition: 'opacity 0.3s ease' };
       case 'slide':
-        return { 
+        return {
           transform: className.includes('out') ? 'translateX(100%)' : className.includes('in') ? 'translateX(0)' : '-translateX(100%)',
           transition: 'transform 0.5s ease'
         };
       case 'zoom':
-        return { 
+        return {
           transform: className.includes('out') ? 'scale(1.2)' : className.includes('in') ? 'scale(1)' : 'scale(0.8)',
           opacity: className.includes('out') ? 0 : 1,
           transition: 'all 0.4s ease'
         };
       case 'flip':
-        return { 
+        return {
           transform: className.includes('out') ? 'rotateY(90deg)' : className.includes('in') ? 'rotateY(0)' : 'rotateY(-90deg)',
           opacity: className.includes('out') || !className.includes('in') ? 0 : 1,
           transition: 'all 0.5s ease',
           transformStyle: 'preserve-3d' as const
         };
       case 'blur':
-        return { 
+        return {
           filter: className.includes('out') ? 'blur(20px)' : className.includes('in') ? 'blur(0)' : 'blur(20px)',
           opacity: className.includes('out') ? 0 : 1,
           transition: 'all 0.4s ease'
@@ -162,19 +197,29 @@ export default function SlideshowPlay() {
     }
   };
 
-  const togglePlay = () => {
-    setIsPlaying(!isPlaying);
+  // 文字位置 -> 样式属性的映射，替代原来层层嵌套的三元表达式
+  const getPositionStyle = (position: string): React.CSSProperties => {
+    const vertical = position.startsWith('top') ? 'top' : position.startsWith('bottom') ? 'bottom' : 'top';
+    const horizontal = position.endsWith('left') ? 'left' : position.endsWith('right') ? 'right' : 'center';
+    const style: React.CSSProperties = { [vertical]: '20px' };
+    if (horizontal === 'center') {
+      style.left = '50%';
+      style.transform = 'translateX(-50%)';
+    } else {
+      style[horizontal] = '20px';
+    }
+    return style;
   };
 
-  const toggleMute = () => {
-    setIsMuted(!isMuted);
+  const togglePlay = () => {
+    setIsPlaying(!isPlaying);
   };
 
   const reset = () => {
     setCurrentIndex(0);
   };
 
-  const exit = () => navigate(-1);
+  const exit = useCallback(() => navigate(-1), [navigate]);
 
   useEffect(() => {
     const handler = (e: KeyboardEvent) => {
@@ -184,9 +229,23 @@ export default function SlideshowPlay() {
     };
     window.addEventListener('keydown', handler);
     return () => window.removeEventListener('keydown', handler);
-  }, [goNext, goPrev]);
+  }, [goNext, goPrev, exit]);
 
-  if (!currentSlideshow || images.length === 0) {
+  if (error) {
+    return (
+      <div className="fixed inset-0 bg-black flex flex-col items-center justify-center gap-4 text-white/60">
+        <p>{error}</p>
+        <button
+          onClick={exit}
+          className="px-4 py-2 bg-white/10 hover:bg-white/20 rounded-lg text-white transition-colors"
+        >
+          返回
+        </button>
+      </div>
+    );
+  }
+
+  if (!currentSlideshow || slides.length === 0) {
     return (
       <div className="fixed inset-0 bg-black flex items-center justify-center text-white/50">
         Loading...
@@ -194,9 +253,8 @@ export default function SlideshowPlay() {
     );
   }
 
-  const slide = images[currentIndex];
+  const slide = slides[currentIndex];
   const effect = currentSlideshow.transitionEffect;
-  const url = imageUrls[slide.id];
   const slideData = currentSlideshow.images.find(s => s.imageId === slide.id);
 
   return (
@@ -204,21 +262,18 @@ export default function SlideshowPlay() {
       {/* Image */}
       <div className="absolute inset-0 flex items-center justify-center">
         <img
-          src={url}
-          alt={slide.name}
+          src={slide.url}
+          alt=""
           className="max-w-full max-h-full object-contain"
           style={getTransitionStyle(effect, transitionClass)}
         />
-        
+
         {/* Overlay text */}
         {slideData?.overlayText && (
           <div
-            className={`absolute text-white text-shadow-lg transition-all duration-300 ${transitionClass}`}
+            className={`absolute text-white transition-all duration-300 ${transitionClass}`}
             style={{
-              position: 'absolute',
-              [slideData.textPosition === 'top-left' ? 'top' : slideData.textPosition === 'bottom-left' ? 'bottom' : slideData.textPosition === 'top-center' ? 'top' : slideData.textPosition === 'bottom-center' ? 'bottom' : slideData.textPosition === 'top-right' ? 'top' : slideData.textPosition === 'bottom-right' ? 'bottom' : 'top']: '20px',
-              [slideData.textPosition === 'top-left' ? 'left' : slideData.textPosition === 'bottom-left' ? 'left' : slideData.textPosition === 'top-center' ? 'left' : slideData.textPosition === 'bottom-center' ? 'left' : slideData.textPosition === 'top-right' ? 'right' : slideData.textPosition === 'bottom-right' ? 'right' : 'left']: slideData.textPosition.includes('center') ? '50%' : '20px',
-              transform: slideData.textPosition.includes('center') ? 'translateX(-50%)' : undefined,
+              ...getPositionStyle(slideData.textPosition),
               color: slideData.textColor,
               fontSize: `${slideData.textSize}px`,
               textShadow: '0 2px 10px rgba(0,0,0,0.5)',
@@ -240,7 +295,7 @@ export default function SlideshowPlay() {
             {currentSlideshow.name}
           </div>
           <div className="flex items-center gap-2 text-white/80 text-sm">
-            {currentIndex + 1} / {images.length}
+            {currentIndex + 1} / {slides.length}
           </div>
         </div>
 
@@ -264,11 +319,8 @@ export default function SlideshowPlay() {
               <ChevronRight size={24} />
             </button>
           </div>
-          
+
           <div className="flex items-center justify-center gap-4 mt-4">
-            <button onClick={toggleMute} className="p-2 rounded-full bg-white/10 backdrop-blur-sm text-white/70 hover:text-white hover:bg-white/20 transition-colors">
-              {isMuted ? <VolumeX size={20} /> : <Volume2 size={20} />}
-            </button>
             <button onClick={reset} className="p-2 rounded-full bg-white/10 backdrop-blur-sm text-white/70 hover:text-white hover:bg-white/20 transition-colors">
               <RotateCcw size={20} />
             </button>

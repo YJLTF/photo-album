@@ -26,18 +26,23 @@ export default function Modal({ isOpen, onClose, title, children }: ModalProps) 
   if (!isOpen) return null;
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center">
+    <div
+      className="fixed inset-0 z-50 flex items-center justify-center"
+      role="dialog"
+      aria-modal="true"
+      aria-label={title}
+    >
       {/* Backdrop */}
       <div
-        className="absolute inset-0 bg-black/60 backdrop-blur-sm"
+        className="absolute inset-0 bg-black/60 backdrop-blur-sm animate-[modal-backdrop-in_0.2s_ease-out]"
         onClick={onClose}
       />
 
-      {/* Content */}
+      {/* Content（keyframes 定义在 index.css，无需 tailwindcss-animate 插件） */}
       <div
         className={cn(
           "relative w-full max-w-lg mx-4 bg-[#1A1A2E] border border-white/10 rounded-2xl shadow-2xl",
-          "animate-in fade-in zoom-in-95 duration-200"
+          "animate-[modal-in_0.2s_ease-out]"
         )}
       >
         {/* Header */}
@@ -52,6 +57,7 @@ export default function Modal({ isOpen, onClose, title, children }: ModalProps) 
             <button
               onClick={onClose}
               className="w-8 h-8 rounded-full bg-white/5 flex items-center justify-center text-[#F5F0EB]/50 hover:bg-white/10 hover:text-[#F5F0EB] transition-colors"
+              aria-label="关闭"
             >
               <X size={16} />
             </button>
@@ -63,6 +69,7 @@ export default function Modal({ isOpen, onClose, title, children }: ModalProps) 
           <button
             onClick={onClose}
             className="absolute top-3 right-3 w-8 h-8 rounded-full bg-white/5 flex items-center justify-center text-[#F5F0EB]/50 hover:bg-white/10 hover:text-[#F5F0EB] transition-colors z-10"
+            aria-label="关闭"
           >
             <X size={16} />
           </button>

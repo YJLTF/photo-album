@@ -1,7 +1,7 @@
 import { useState, useEffect, useCallback } from "react";
 import { useParams, useNavigate } from "react-router-dom";
-import { ArrowLeft, Plus, Play, Tag as TagIcon, Download, Trash2, X, ZoomIn } from "lucide-react";
-import { albumApi, imageApi, tagApi, getImageUrlWithAuth, type Album, type ImageItem, type Tag, type PermissionLevel } from "@/lib/api";
+import { ArrowLeft, Plus, Play, Tag as TagIcon, Trash2 } from "lucide-react";
+import { albumApi, imageApi, tagApi, getThumbnailUrlWithAuth, type Album, type ImageItem, type Tag, type PermissionLevel } from "@/lib/api";
 import ImageCard from "@/components/ImageCard";
 import UploadZone from "@/components/UploadZone";
 import Modal from "@/components/Modal";
@@ -21,9 +21,28 @@ export default function AlbumDetail() {
   const [newTagId, setNewTagId] = useState("");
   const [selectedImages, setSelectedImages] = useState<Set<string>>(new Set());
 
+  const fetchData = useCallback(async () => {
+    if (!albumId) return;
+    try {
+      // 相册、图片、标签、图片-标签映射各一个请求，不再逐图查询
+      const [albumData, imagesData, tagsData, tagMap] = await Promise.all([
+        albumApi.getById(albumId),
+        imageApi.getByAlbum(albumId),
+        tagApi.getAll(),
+        tagApi.getAlbumMap(albumId),
+      ]);
+      setAlbum(albumData);
+      setImages(imagesData);
+      setTags(tagsData);
+      setImageTags(tagMap);
+    } catch (error) {
+      console.error("Failed to fetch data:", error);
+    }
+  }, [albumId]);
+
   useEffect(() => {
     fetchData();
-  }, [albumId]);
+  }, [fetchData]);
 
   useEffect(() => {
     const handleRefresh = () => {
@@ -35,41 +54,25 @@ export default function AlbumDetail() {
       window.removeEventListener('tagDeleted', handleRefresh);
       window.removeEventListener('tagCreated', handleRefresh);
     };
-  }, [albumId]);
+  }, [fetchData]);
 
-  const fetchData = async () => {
-    if (!albumId) return;
-    try {
-      const [albumData, imagesData, tagsData] = await Promise.all([
-        albumApi.getById(albumId),
-        imageApi.getByAlbum(albumId),
-        tagApi.getAll(),
-      ]);
-      setAlbum(albumData);
-      setImages(imagesData);
-      setTags(tagsData);
-      
-      const tagsMap: Record<string, Tag[]> = {};
-      for (const img of imagesData) {
-        tagsMap[img.id] = await tagApi.getByImage(img.id);
-      }
-      setImageTags(tagsMap);
-    } catch (error) {
-      console.error("Failed to fetch data:", error);
-    }
-  };
-
-  const handleUpload = useCallback(async (files: FileList) => {
+  const handleUpload = useCallback(async (
+    files: FileList,
+    onFileProgress?: (fileName: string, percent: number) => void
+  ) => {
     if (!albumId) return;
     for (let i = 0; i < files.length; i++) {
-      await imageApi.upload(albumId, files[i]);
+      const file = files[i];
+      await imageApi.upload(albumId, file, percent => onFileProgress?.(file.name, percent));
     }
     fetchData();
-  }, [albumId]);
+  }, [albumId, fetchData]);
 
   const handleDeleteImage = useCallback(async (id: string) => {
+    if (!confirm("确定要删除这张照片吗？")) return;
+
     await imageApi.delete(id);
-    
+
     // 如果删除的是封面图片，尝试设置新封面
     if (album?.coverImageId === id) {
       const remainingImages = images.filter(img => img.id !== id);
@@ -79,58 +82,48 @@ export default function AlbumDetail() {
         await albumApi.update(albumId!, { coverImageId: null });
       }
     }
-    
-    // 使用 setTimeout 确保状态更新完成后再调用 fetchData
-    setTimeout(() => {
-      fetchData();
-    }, 0);
-  }, [album?.coverImageId, images, albumId]);
+
+    fetchData();
+  }, [album?.coverImageId, images, albumId, fetchData]);
 
   const handleBatchDelete = useCallback(async () => {
     const ids = Array.from(selectedImages);
-    
+    if (!confirm(`确定要删除选中的 ${ids.length} 张照片吗？`)) return;
+
     // 检查是否删除封面图片
     const coverImageId = album?.coverImageId;
-    let needUpdateCover = coverImageId && selectedImages.has(coverImageId);
+    const deletingCover = Boolean(coverImageId && selectedImages.has(coverImageId));
     let newCoverId: string | null = null;
-    
-    if (needUpdateCover) {
+
+    if (deletingCover) {
       const remainingImages = images.filter(img => !selectedImages.has(img.id));
       if (remainingImages.length > 0) {
         newCoverId = remainingImages[0].id;
       }
     }
-    
-    // 批量删除图片
-    for (const id of ids) {
-      await imageApi.delete(id);
-    }
-    
+
+    await Promise.all(ids.map(id => imageApi.delete(id)));
+
     // 更新封面
-    if (needUpdateCover) {
+    if (deletingCover) {
       await albumApi.update(albumId!, { coverImageId: newCoverId });
     }
-    
-    // 清空选择
+
     setSelectedImages(new Set());
-    
-    // 使用 setTimeout 确保状态更新完成后再调用 fetchData
-    setTimeout(() => {
-      fetchData();
-    }, 0);
-  }, [selectedImages, album?.coverImageId, images, albumId]);
+    fetchData();
+  }, [selectedImages, album?.coverImageId, images, albumId, fetchData]);
 
   const handleAddTag = useCallback(async () => {
     if (!selectedImageId || !newTagId) return;
     try {
       await tagApi.addToImage(selectedImageId, newTagId);
-    } catch (error) {
+    } catch {
       // 忽略重复添加的错误
     }
     setShowTagModal(false);
     setNewTagId("");
     fetchData();
-  }, [selectedImageId, newTagId]);
+  }, [selectedImageId, newTagId, fetchData]);
 
   const handleBatchAddTag = useCallback(async () => {
     if (!newTagId || selectedImages.size === 0) return;
@@ -143,32 +136,26 @@ export default function AlbumDetail() {
     }
 
     const ids = Array.from(selectedImages);
-    const tagIdToUse = newTagId; // 保存当前标签ID
+    const tagIdToUse = newTagId;
 
-    // 先清空状态
     setShowBatchTagModal(false);
     setNewTagId("");
     setSelectedImages(new Set());
 
-    // 然后执行批量添加
-    for (const id of ids) {
+    await Promise.all(ids.map(async (id) => {
       try {
         await tagApi.addToImage(id, tagIdToUse);
-      } catch (error) {
+      } catch {
         // 忽略重复添加的错误
       }
-    }
+    }));
 
-    // 使用 setTimeout 确保状态更新完成后再调用 fetchData
-    setTimeout(() => {
-      fetchData();
-    }, 0);
-  }, [newTagId, selectedImages, tags]);
+    fetchData();
+  }, [newTagId, selectedImages, tags, fetchData]);
 
   const handleRemoveTag = useCallback(async (imageId: string, tagId: string) => {
     try {
       await tagApi.removeFromImage(imageId, tagId);
-      // 立即更新状态，不等待fetchData
       setImageTags(prev => {
         const newTagsMap = { ...prev };
         if (newTagsMap[imageId]) {
@@ -176,10 +163,6 @@ export default function AlbumDetail() {
         }
         return newTagsMap;
       });
-      // 使用 setTimeout 确保状态更新完成后再调用 fetchData
-      setTimeout(() => {
-        fetchData();
-      }, 0);
     } catch (error) {
       console.error("Failed to remove tag:", error);
     }
@@ -221,6 +204,7 @@ export default function AlbumDetail() {
               <button
                 onClick={() => navigate("/")}
                 className="p-2 hover:bg-white/5 rounded-lg transition-colors"
+                aria-label="返回"
               >
                 <ArrowLeft size={20} className="text-[#F5F0EB]" />
               </button>
@@ -293,7 +277,7 @@ export default function AlbumDetail() {
           <UploadZone onUpload={handleUpload} albumId={albumId!} compact />
         </div>
       )}
-        
+
         {images.length > 0 ? (
           <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 gap-3">
             {images.map((image) => (
@@ -301,7 +285,7 @@ export default function AlbumDetail() {
                 key={image.id}
                 image={{
                   id: image.id,
-                  url: getImageUrlWithAuth(image.id),
+                  url: getThumbnailUrlWithAuth(image.id),
                   name: image.name,
                   tags: imageTags[image.id] || [],
                 }}

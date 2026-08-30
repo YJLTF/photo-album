@@ -1,18 +1,12 @@
-import { useState, useEffect } from "react";
-import { Plus, Key, Trash2, Edit2, Copy, Check, X } from "lucide-react";
+import { useState, useEffect, useCallback } from "react";
+import { Plus, Key, Trash2, Edit2, Copy, Check } from "lucide-react";
 import { accessKeyApi, type AccessKey, type PermissionLevel } from "@/lib/api";
+import { PERMISSION_LABELS, PERMISSION_BADGE_COLORS } from "@/lib/constants";
 import Modal from "@/components/Modal";
 
-const permissionLabels: Record<PermissionLevel, string> = {
-  viewer: "浏览者",
-  editor: "编辑者",
-  admin: "管理员",
-};
-
-const permissionColors: Record<PermissionLevel, string> = {
-  viewer: "bg-blue-500/20 text-blue-400",
-  editor: "bg-green-500/20 text-green-400",
-  admin: "bg-orange-500/20 text-orange-400",
+const extractMessage = (error: unknown, fallback: string): string => {
+  if (error instanceof Error && error.message) return error.message;
+  return fallback;
 };
 
 export default function AccessKeys() {
@@ -28,18 +22,36 @@ export default function AccessKeys() {
   const [createError, setCreateError] = useState("");
   const [editError, setEditError] = useState("");
 
-  const loadKeys = async () => {
+  const loadKeys = useCallback(async () => {
     try {
       const data = await accessKeyApi.getAll();
       setKeys(data);
     } catch (error) {
       console.error("Failed to load access keys:", error);
     }
-  };
+  }, []);
 
   useEffect(() => {
     loadKeys();
-  }, []);
+  }, [loadKeys]);
+
+  // 修改/禁用/删除当前登录密钥后，旧 token 里的 key 已失效，需要强制重新登录
+  const forceLogoutIfCurrentKey = (keyValue: string) => {
+    const currentToken = localStorage.getItem("token");
+    if (!currentToken) return false;
+    try {
+      const payload = JSON.parse(atob(currentToken.split(".")[1]));
+      if (payload.key === keyValue) {
+        localStorage.removeItem("token");
+        localStorage.removeItem("permission");
+        window.location.href = "/login";
+        return true;
+      }
+    } catch {
+      // token 解析失败，继续刷新列表
+    }
+    return false;
+  };
 
   const handleCreate = async () => {
     if (!newKey || newKey.length < 6) return;
@@ -51,9 +63,9 @@ export default function AccessKeys() {
       setNewPermission("viewer");
       setNewDescription("");
       loadKeys();
-    } catch (error: any) {
+    } catch (error) {
       console.error("Failed to create access key:", error);
-      setCreateError(error?.response?.data?.message || error?.message || "创建失败");
+      setCreateError(extractMessage(error, "创建失败"));
     }
   };
 
@@ -65,27 +77,13 @@ export default function AccessKeys() {
       setShowEditModal(false);
       setEditingKey(null);
       setEditNewKey("");
-      
-      // 如果修改的是当前使用的密钥，需要重新登录
-      const currentToken = localStorage.getItem("token");
-      if (currentToken) {
-        try {
-          const payload = JSON.parse(atob(currentToken.split(".")[1]));
-          if (payload.key === editingKey.key) {
-            localStorage.removeItem("token");
-            localStorage.removeItem("permission");
-            window.location.href = "/login";
-            return;
-          }
-        } catch (e) {
-          // token 解析失败，继续刷新列表
-        }
+
+      if (!forceLogoutIfCurrentKey(editingKey.key)) {
+        loadKeys();
       }
-      
-      loadKeys();
-    } catch (error: any) {
+    } catch (error) {
       console.error("Failed to update access key:", error);
-      setEditError(error?.response?.data?.message || error?.message || "修改失败");
+      setEditError(extractMessage(error, "修改失败"));
     }
   };
 
@@ -94,24 +92,10 @@ export default function AccessKeys() {
     try {
       const keyToDelete = keys.find(k => k.id === id);
       await accessKeyApi.delete(id);
-      
-      // 如果删除的是当前使用的密钥，需要重新登录
-      const currentToken = localStorage.getItem("token");
-      if (currentToken && keyToDelete) {
-        try {
-          const payload = JSON.parse(atob(currentToken.split(".")[1]));
-          if (payload.key === keyToDelete.key) {
-            localStorage.removeItem("token");
-            localStorage.removeItem("permission");
-            window.location.href = "/login";
-            return;
-          }
-        } catch (e) {
-          // token 解析失败，继续刷新列表
-        }
+
+      if (keyToDelete && !forceLogoutIfCurrentKey(keyToDelete.key)) {
+        loadKeys();
       }
-      
-      loadKeys();
     } catch (error) {
       console.error("Failed to delete access key:", error);
     }
@@ -120,29 +104,13 @@ export default function AccessKeys() {
   const handleToggleActive = async (key: AccessKey) => {
     const action = key.active ? "禁用" : "启用";
     if (!confirm(`确定要${action}此密钥吗？`)) return;
-    
+
     try {
       await accessKeyApi.update(key.id, { active: !key.active });
-      
-      // 如果禁用当前使用的密钥，需要重新登录
-      if (key.active) {
-        const currentToken = localStorage.getItem("token");
-        if (currentToken) {
-          try {
-            const payload = JSON.parse(atob(currentToken.split(".")[1]));
-            if (payload.key === key.key) {
-              localStorage.removeItem("token");
-              localStorage.removeItem("permission");
-              window.location.href = "/login";
-              return;
-            }
-          } catch (e) {
-            // token 解析失败，继续刷新列表
-          }
-        }
+
+      if (key.active && !forceLogoutIfCurrentKey(key.key)) {
+        loadKeys();
       }
-      
-      loadKeys();
     } catch (error) {
       console.error("Failed to toggle access key:", error);
     }
@@ -195,16 +163,16 @@ export default function AccessKeys() {
             <div
               key={key.id}
               className={`flex items-center justify-between p-4 rounded-xl border transition-all ${
-                key.active 
-                  ? "bg-[#16213E]/50 border-white/10" 
+                key.active
+                  ? "bg-[#16213E]/50 border-white/10"
                   : "bg-[#16213E]/20 border-white/5 opacity-60"
               }`}
             >
               <div className="flex-1">
                 <div className="flex items-center gap-3 mb-2">
                   <code className="text-[#E8845C] font-mono font-medium">{key.key}</code>
-                  <span className={`px-2 py-0.5 rounded text-xs font-medium ${permissionColors[key.permission]}`}>
-                    {permissionLabels[key.permission]}
+                  <span className={`px-2 py-0.5 rounded text-xs font-medium ${PERMISSION_BADGE_COLORS[key.permission]}`}>
+                    {PERMISSION_LABELS[key.permission]}
                   </span>
                   {!key.active && (
                     <span className="px-2 py-0.5 rounded text-xs font-medium bg-gray-500/20 text-gray-400">
@@ -225,6 +193,7 @@ export default function AccessKeys() {
                   onClick={() => copyToClipboard(key.key, key.id)}
                   className="p-2 rounded-lg hover:bg-white/10 text-[#F5F0EB]/60 hover:text-[#F5F0EB] transition-colors"
                   title="复制密钥"
+                  aria-label="复制密钥"
                 >
                   {copiedId === key.id ? <Check size={18} /> : <Copy size={18} />}
                 </button>
@@ -232,6 +201,7 @@ export default function AccessKeys() {
                   onClick={() => openEditModal(key)}
                   className="p-2 rounded-lg hover:bg-white/10 text-[#F5F0EB]/60 hover:text-[#F5F0EB] transition-colors"
                   title="修改密钥"
+                  aria-label="修改密钥"
                 >
                   <Edit2 size={18} />
                 </button>
@@ -259,6 +229,7 @@ export default function AccessKeys() {
                       : "hover:bg-red-500/20 text-[#F5F0EB]/60 hover:text-red-400"
                   }`}
                   title={key.permission === "admin" ? "管理员密钥不能删除" : "删除密钥"}
+                  aria-label="删除密钥"
                   disabled={key.permission === "admin"}
                 >
                   <Trash2 size={18} />
@@ -270,153 +241,133 @@ export default function AccessKeys() {
       </div>
 
       {/* Create Modal */}
-      {showCreateModal && (
-        <Modal isOpen={showCreateModal} onClose={() => setShowCreateModal(false)}>
-          <div className="bg-[#16213E] rounded-xl p-6 w-[420px]">
-            <div className="flex items-center justify-between mb-6">
-              <h2 className="text-xl font-bold text-[#F5F0EB]" style={{ fontFamily: "'Playfair Display', serif" }}>
-                创建访问密钥
-              </h2>
-              <button
-                onClick={() => setShowCreateModal(false)}
-                className="p-1 rounded hover:bg-white/10 text-[#F5F0EB]/60"
-              >
-                <X size={20} />
-              </button>
+      <Modal isOpen={showCreateModal} onClose={() => setShowCreateModal(false)}>
+        <div className="p-6">
+          <h3 className="text-lg font-semibold text-[#F5F0EB] mb-6" style={{ fontFamily: "'Playfair Display', serif" }}>
+            创建访问密钥
+          </h3>
+
+          <div className="space-y-4">
+            <div>
+              <label className="block text-sm font-medium text-[#F5F0EB]/70 mb-2">
+                密钥 <span className="text-red-400">*</span>
+              </label>
+              <input
+                type="text"
+                value={newKey}
+                onChange={(e) => {
+                  setNewKey(e.target.value);
+                  setCreateError("");
+                }}
+                placeholder="请输入密钥（至少6个字符）"
+                className="w-full px-4 py-2.5 bg-[#1A1A2E] border border-white/10 rounded-lg text-[#F5F0EB] placeholder:text-[#F5F0EB]/30 focus:outline-none focus:border-[#E8845C]/50"
+              />
+              {createError && (
+                <p className="mt-1.5 text-red-400 text-sm">{createError}</p>
+              )}
             </div>
 
-            <div className="space-y-4">
-              <div>
-                <label className="block text-sm font-medium text-[#F5F0EB]/70 mb-2">
-                  密钥 <span className="text-red-400">*</span>
-                </label>
-                <input
-                  type="text"
-                  value={newKey}
-                  onChange={(e) => {
-                    setNewKey(e.target.value);
-                    setCreateError("");
-                  }}
-                  placeholder="请输入密钥（至少6个字符）"
-                  className="w-full px-4 py-2.5 bg-[#1A1A2E] border border-white/10 rounded-lg text-[#F5F0EB] placeholder:text-[#F5F0EB]/30 focus:outline-none focus:border-[#E8845C]/50"
-                />
-                {createError && (
-                  <p className="mt-1.5 text-red-400 text-sm">{createError}</p>
-                )}
-              </div>
-
-              <div>
-                <label className="block text-sm font-medium text-[#F5F0EB]/70 mb-2">
-                  权限级别 <span className="text-red-400">*</span>
-                </label>
-                <select
-                  value={newPermission}
-                  onChange={(e) => setNewPermission(e.target.value as PermissionLevel)}
-                  className="w-full px-4 py-2.5 bg-[#1A1A2E] border border-white/10 rounded-lg text-[#F5F0EB] focus:outline-none focus:border-[#E8845C]/50"
-                >
-                  <option value="viewer">浏览者 - 仅能查看</option>
-                  <option value="editor">编辑者 - 可添加和管理内容</option>
-                  <option value="admin">管理员 - 完整权限</option>
-                </select>
-              </div>
-
-              <div>
-                <label className="block text-sm font-medium text-[#F5F0EB]/70 mb-2">
-                  描述（可选）
-                </label>
-                <input
-                  type="text"
-                  value={newDescription}
-                  onChange={(e) => setNewDescription(e.target.value)}
-                  placeholder="例如：测试账号"
-                  className="w-full px-4 py-2.5 bg-[#1A1A2E] border border-white/10 rounded-lg text-[#F5F0EB] placeholder:text-[#F5F0EB]/30 focus:outline-none focus:border-[#E8845C]/50"
-                />
-              </div>
+            <div>
+              <label className="block text-sm font-medium text-[#F5F0EB]/70 mb-2">
+                权限级别 <span className="text-red-400">*</span>
+              </label>
+              <select
+                value={newPermission}
+                onChange={(e) => setNewPermission(e.target.value as PermissionLevel)}
+                className="w-full px-4 py-2.5 bg-[#1A1A2E] border border-white/10 rounded-lg text-[#F5F0EB] focus:outline-none focus:border-[#E8845C]/50"
+              >
+                <option value="viewer">浏览者 - 仅能查看</option>
+                <option value="editor">编辑者 - 可添加和管理内容</option>
+                <option value="admin">管理员 - 完整权限</option>
+              </select>
             </div>
 
-            <div className="flex gap-3 mt-6">
-              <button
-                onClick={() => setShowCreateModal(false)}
-                className="flex-1 px-4 py-2.5 border border-white/20 rounded-lg text-[#F5F0EB]/70 hover:bg-white/5 transition-colors"
-              >
-                取消
-              </button>
-              <button
-                onClick={handleCreate}
-                disabled={!newKey || newKey.length < 6}
-                className="flex-1 px-4 py-2.5 bg-[#E8845C] rounded-lg font-medium hover:bg-[#E8845C]/80 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
-              >
-                创建
-              </button>
+            <div>
+              <label className="block text-sm font-medium text-[#F5F0EB]/70 mb-2">
+                描述（可选）
+              </label>
+              <input
+                type="text"
+                value={newDescription}
+                onChange={(e) => setNewDescription(e.target.value)}
+                placeholder="例如：测试账号"
+                className="w-full px-4 py-2.5 bg-[#1A1A2E] border border-white/10 rounded-lg text-[#F5F0EB] placeholder:text-[#F5F0EB]/30 focus:outline-none focus:border-[#E8845C]/50"
+              />
             </div>
           </div>
-        </Modal>
-      )}
+
+          <div className="flex gap-3 mt-6">
+            <button
+              onClick={() => setShowCreateModal(false)}
+              className="flex-1 px-4 py-2.5 border border-white/20 rounded-lg text-[#F5F0EB]/70 hover:bg-white/5 transition-colors"
+            >
+              取消
+            </button>
+            <button
+              onClick={handleCreate}
+              disabled={!newKey || newKey.length < 6}
+              className="flex-1 px-4 py-2.5 bg-[#E8845C] rounded-lg font-medium hover:bg-[#E8845C]/80 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+            >
+              创建
+            </button>
+          </div>
+        </div>
+      </Modal>
 
       {/* Edit Modal */}
-      {showEditModal && editingKey && (
-        <Modal isOpen={showEditModal} onClose={() => setShowEditModal(false)}>
-          <div className="bg-[#16213E] rounded-xl p-6 w-[420px]">
-            <div className="flex items-center justify-between mb-6">
-              <h2 className="text-xl font-bold text-[#F5F0EB]" style={{ fontFamily: "'Playfair Display', serif" }}>
-                修改密钥
-              </h2>
-              <button
-                onClick={() => setShowEditModal(false)}
-                className="p-1 rounded hover:bg-white/10 text-[#F5F0EB]/60"
-              >
-                <X size={20} />
-              </button>
-            </div>
+      <Modal isOpen={showEditModal && !!editingKey} onClose={() => setShowEditModal(false)}>
+        <div className="p-6">
+          <h3 className="text-lg font-semibold text-[#F5F0EB] mb-6" style={{ fontFamily: "'Playfair Display', serif" }}>
+            修改密钥
+          </h3>
 
-            <div className="space-y-4">
-              <div>
-                <label className="block text-sm font-medium text-[#F5F0EB]/70 mb-2">
-                  当前密钥
-                </label>
-                <div className="px-4 py-2.5 bg-[#1A1A2E] border border-white/10 rounded-lg text-[#F5F0EB]/50 font-mono">
-                  {editingKey.key}
-                </div>
-              </div>
-
-              <div>
-                <label className="block text-sm font-medium text-[#F5F0EB]/70 mb-2">
-                  新密钥 <span className="text-red-400">*</span>
-                </label>
-                <input
-                  type="text"
-                  value={editNewKey}
-                  onChange={(e) => {
-                    setEditNewKey(e.target.value);
-                    setEditError("");
-                  }}
-                  placeholder="请输入新密钥（至少6个字符）"
-                  className="w-full px-4 py-2.5 bg-[#1A1A2E] border border-white/10 rounded-lg text-[#F5F0EB] placeholder:text-[#F5F0EB]/30 focus:outline-none focus:border-[#E8845C]/50"
-                />
-                {editError && (
-                  <p className="mt-1.5 text-red-400 text-sm">{editError}</p>
-                )}
+          <div className="space-y-4">
+            <div>
+              <label className="block text-sm font-medium text-[#F5F0EB]/70 mb-2">
+                当前密钥
+              </label>
+              <div className="px-4 py-2.5 bg-[#1A1A2E] border border-white/10 rounded-lg text-[#F5F0EB]/50 font-mono">
+                {editingKey?.key}
               </div>
             </div>
 
-            <div className="flex gap-3 mt-6">
-              <button
-                onClick={() => setShowEditModal(false)}
-                className="flex-1 px-4 py-2.5 border border-white/20 rounded-lg text-[#F5F0EB]/70 hover:bg-white/5 transition-colors"
-              >
-                取消
-              </button>
-              <button
-                onClick={handleEdit}
-                disabled={!editNewKey || editNewKey.length < 6}
-                className="flex-1 px-4 py-2.5 bg-[#E8845C] rounded-lg font-medium hover:bg-[#E8845C]/80 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
-              >
-                保存
-              </button>
+            <div>
+              <label className="block text-sm font-medium text-[#F5F0EB]/70 mb-2">
+                新密钥 <span className="text-red-400">*</span>
+              </label>
+              <input
+                type="text"
+                value={editNewKey}
+                onChange={(e) => {
+                  setEditNewKey(e.target.value);
+                  setEditError("");
+                }}
+                placeholder="请输入新密钥（至少6个字符）"
+                className="w-full px-4 py-2.5 bg-[#1A1A2E] border border-white/10 rounded-lg text-[#F5F0EB] placeholder:text-[#F5F0EB]/30 focus:outline-none focus:border-[#E8845C]/50"
+              />
+              {editError && (
+                <p className="mt-1.5 text-red-400 text-sm">{editError}</p>
+              )}
             </div>
           </div>
-        </Modal>
-      )}
+
+          <div className="flex gap-3 mt-6">
+            <button
+              onClick={() => setShowEditModal(false)}
+              className="flex-1 px-4 py-2.5 border border-white/20 rounded-lg text-[#F5F0EB]/70 hover:bg-white/5 transition-colors"
+            >
+              取消
+            </button>
+            <button
+              onClick={handleEdit}
+              disabled={!editNewKey || editNewKey.length < 6}
+              className="flex-1 px-4 py-2.5 bg-[#E8845C] rounded-lg font-medium hover:bg-[#E8845C]/80 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+            >
+              保存
+            </button>
+          </div>
+        </div>
+      </Modal>
     </div>
   );
 }

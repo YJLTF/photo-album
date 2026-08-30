@@ -18,12 +18,13 @@ export default function App() {
 
   useEffect(() => {
     const token = localStorage.getItem("token");
-    const savedPermission = localStorage.getItem("permission") as PermissionLevel;
-    
-    if (token && savedPermission) {
-      authApi.validate().then(() => {
+
+    if (token) {
+      // 以服务端返回的权限为准（管理员可能已调整该密钥的权限）
+      authApi.validate().then((res) => {
+        localStorage.setItem("permission", res.permission);
+        setPermission(res.permission);
         setIsAuthenticated(true);
-        setPermission(savedPermission);
         setLoading(false);
       }).catch(() => {
         localStorage.removeItem("token");
@@ -61,15 +62,9 @@ export default function App() {
     <Router>
       <Routes>
         {/* Login page */}
-        <Route 
-          path="/login" 
-          element={isAuthenticated ? <Navigate to="/" /> : <Login onLogin={handleLogin} />} 
-        />
-
-        {/* Redirect to login if not authenticated */}
-        <Route 
-          path="*" 
-          element={isAuthenticated ? null : <Navigate to="/login" />}
+        <Route
+          path="/login"
+          element={isAuthenticated ? <Navigate to="/" /> : <Login onLogin={handleLogin} />}
         />
 
         {/* Full-screen pages without sidebar */}
@@ -79,7 +74,7 @@ export default function App() {
             <Route path="/slideshow/play" element={<SlideshowPlay />} />
 
             {/* Pages with sidebar layout */}
-            <Route element={<Layout permission={permission!} onLogout={handleLogout} />}>
+            <Route element={<Layout permission={permission ?? "viewer"} onLogout={handleLogout} />}>
               <Route path="/" element={<Home />} />
               <Route path="/album/:albumId" element={<AlbumDetail />} />
               <Route path="/tags" element={<Tags />} />
@@ -89,8 +84,11 @@ export default function App() {
           </>
         )}
 
-        {/* Default redirect */}
-        <Route path="/" element={isAuthenticated ? <Home /> : <Navigate to="/login" />} />
+        {/* 未登录跳登录页；已登录时未知路径回首页 */}
+        <Route
+          path="*"
+          element={isAuthenticated ? <Navigate to="/" /> : <Navigate to="/login" />}
+        />
       </Routes>
     </Router>
   );

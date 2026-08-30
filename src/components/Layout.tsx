@@ -1,5 +1,4 @@
-import { useNavigate, useLocation } from "react-router-dom";
-import { Outlet } from "react-router-dom";
+import { useNavigate, useLocation, Outlet } from "react-router-dom";
 import Sidebar from "@/components/Sidebar";
 import type { PermissionLevel } from "@/lib/api";
 
@@ -29,7 +28,8 @@ export default function Layout({ permission, onLogout }: LayoutProps) {
         navigate("/tags");
         break;
       case "slideshows":
-        navigate("/slideshow/edit");
+        // 只读用户进编辑页只能看到一屏禁用的表单，跳回主页看轮播卡片更合理
+        navigate(permission === "viewer" ? "/" : "/slideshow/edit");
         break;
       case "access-keys":
         navigate("/admin/keys");

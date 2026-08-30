@@ -1,78 +1,57 @@
 import { useState, useEffect, useCallback } from "react";
 import { useNavigate } from "react-router-dom";
 import { Plus, Tag as TagIcon, X, Search } from "lucide-react";
-import { tagApi, imageApi, albumApi, getImageUrlWithAuth, type Tag, type ImageItem, type PermissionLevel } from "@/lib/api";
+import { tagApi, imageApi, getThumbnailUrlWithAuth, type Tag, type ImageItem, type PermissionLevel } from "@/lib/api";
+import { TAG_COLORS } from "@/lib/constants";
 import Modal from "@/components/Modal";
-
-const TAG_COLORS = ["#E8845C", "#5CE8A0", "#5CA8E8", "#E85CA0", "#A05CE8", "#E8D45C"];
 
 export default function Tags() {
   const navigate = useNavigate();
   const permission = localStorage.getItem("permission") as PermissionLevel;
-  
+
   const [tags, setTags] = useState<Tag[]>([]);
   const [selectedTags, setSelectedTags] = useState<Set<string>>(new Set());
   const [images, setImages] = useState<ImageItem[]>([]);
+  const [imageTagMap, setImageTagMap] = useState<Record<string, Tag[]>>({});
   const [filteredImages, setFilteredImages] = useState<ImageItem[]>([]);
   const [searchQuery, setSearchQuery] = useState("");
   const [showCreateModal, setShowCreateModal] = useState(false);
   const [newTagName, setNewTagName] = useState("");
 
-  useEffect(() => {
-    fetchData();
-  }, []);
-
-  useEffect(() => {
-    const tagsArray = Array.from(selectedTags);
-    filterImages(tagsArray);
-  }, [selectedTags.size, searchQuery]);
-
-  const fetchData = async () => {
+  const fetchData = useCallback(async () => {
     try {
-      const tagsData = await tagApi.getAll();
+      // 标签、全部图片、全量 imageId->标签 映射各一个请求；之后筛选全在本地完成
+      const [tagsData, allImages, imageMap] = await Promise.all([
+        tagApi.getAll(),
+        imageApi.getAll(),
+        tagApi.getImageMap(),
+      ]);
       setTags(tagsData);
-      
-      const allImages: ImageItem[] = [];
-      const albums = await albumApi.getAll();
-      
-      for (const album of albums) {
-        const albumImages = await imageApi.getByAlbum(album.id);
-        allImages.push(...albumImages);
-      }
       setImages(allImages);
-      // 数据加载完成后立即执行过滤
-      filterImages(Array.from(selectedTags));
+      setImageTagMap(imageMap);
     } catch (error) {
       console.error("Failed to fetch data:", error);
     }
-  };
+  }, []);
 
-  const filterImages = async (selectedTagsArray: string[], sourceImages?: ImageItem[]) => {
-    const imgs = sourceImages || images;
-    
-    if (selectedTagsArray.length === 0) {
-      const filtered = imgs.filter(img => 
-        img.name.toLowerCase().includes(searchQuery.toLowerCase())
-      );
-      setFilteredImages(filtered);
-      return;
-    }
+  useEffect(() => {
+    fetchData();
+  }, [fetchData]);
 
-    const matched: Set<string> = new Set();
-    for (const image of imgs) {
-      if (!image.name.toLowerCase().includes(searchQuery.toLowerCase())) continue;
-      
-      const imageTags = await tagApi.getByImage(image.id);
-      const hasAllTags = selectedTagsArray.every(tagId => 
-        imageTags.some(it => it.id === tagId)
-      );
-      if (hasAllTags) {
-        matched.add(image.id);
-      }
-    }
-    
-    setFilteredImages(imgs.filter(img => matched.has(img.id)));
-  };
+  // 纯同步过滤：选中的标签取交集，搜索按文件名匹配（不再逐图发请求）
+  useEffect(() => {
+    const query = searchQuery.trim().toLowerCase();
+    const selected = Array.from(selectedTags);
+
+    const filtered = images.filter(img => {
+      if (query && !img.name.toLowerCase().includes(query)) return false;
+      if (selected.length === 0) return true;
+      const imgTags = imageTagMap[img.id] ?? [];
+      return selected.every(tagId => imgTags.some(t => t.id === tagId));
+    });
+
+    setFilteredImages(filtered);
+  }, [images, imageTagMap, selectedTags, searchQuery]);
 
   const handleCreateTag = useCallback(async () => {
     const name = newTagName.trim();
@@ -83,9 +62,11 @@ export default function Tags() {
     setShowCreateModal(false);
     fetchData();
     window.dispatchEvent(new Event('tagCreated'));
-  }, [newTagName, tags.length]);
+  }, [newTagName, tags.length, fetchData]);
 
   const handleDeleteTag = useCallback(async (id: string) => {
+    const tag = tags.find(t => t.id === id);
+    if (!confirm(`确定要删除标签「${tag?.name ?? ""}」吗？`)) return;
     await tagApi.delete(id);
     setSelectedTags(prev => {
       const newSet = new Set(prev);
@@ -94,7 +75,7 @@ export default function Tags() {
     });
     fetchData();
     window.dispatchEvent(new Event('tagDeleted'));
-  }, []);
+  }, [tags, fetchData]);
 
   const toggleTag = (tagId: string) => {
     setSelectedTags(prev => {
@@ -106,14 +87,6 @@ export default function Tags() {
       }
       return newSet;
     });
-    // 在状态更新后执行过滤
-    const newSet = new Set(selectedTags);
-    if (newSet.has(tagId)) {
-      newSet.delete(tagId);
-    } else {
-      newSet.add(tagId);
-    }
-    filterImages(Array.from(newSet), images);
   };
 
   const canEdit = permission === "editor" || permission === "admin";
@@ -159,7 +132,7 @@ export default function Tags() {
                     ? "bg-opacity-100 text-white shadow-[0_0_12px_rgba(232,132,92,0.25)]"
                     : "bg-white/5 text-[#F5F0EB]/60 hover:bg-white/10 hover:text-[#F5F0EB]"
                 }`}
-                style={{ 
+                style={{
                   backgroundColor: selectedTags.has(tag.id) ? tag.color : undefined,
                   borderColor: tag.color,
                   borderWidth: selectedTags.has(tag.id) ? 0 : 1,
@@ -175,6 +148,8 @@ export default function Tags() {
                       handleDeleteTag(tag.id);
                     }}
                     className="ml-1 hover:opacity-70 cursor-pointer"
+                    role="button"
+                    aria-label={`删除标签 ${tag.name}`}
                   >
                     <X size={14} />
                   </span>
@@ -207,10 +182,11 @@ export default function Tags() {
                   className="aspect-square rounded-lg overflow-hidden cursor-pointer group"
                 >
                   <img
-                    src={getImageUrlWithAuth(image.id)}
+                    src={getThumbnailUrlWithAuth(image.id)}
                     alt={image.name}
                     className="w-full h-full object-cover transition-transform duration-300 group-hover:scale-110"
                     loading="lazy"
+                    decoding="async"
                   />
                 </div>
               ))}
@@ -221,7 +197,7 @@ export default function Tags() {
                 <TagIcon size={48} className="text-[#F5F0EB]/20" />
               </div>
               <h3 className="text-xl font-semibold text-[#F5F0EB] mb-2" style={{ fontFamily: "'Playfair Display', serif" }}>
-                {selectedTags.size > 0 ? "没有匹配的图片" : "暂无筛选结果"}
+                {selectedTags.size > 0 || searchQuery ? "没有匹配的图片" : "暂无图片"}
               </h3>
               <p className="text-[#F5F0EB]/50">尝试选择不同的标签或调整搜索条件</p>
             </div>
@@ -252,7 +228,7 @@ export default function Tags() {
             </button>
             <button
               onClick={handleCreateTag}
-              className="flex-1 px-4 py-2 bg-[#E8845C] hover:bg-[#E8845C]/80 rounded-lg font-medium text-white transition-colors"
+              className="flex-1 px-4 py-2 bg-[#E8845C] hover:bg-[#E8845C]/80 rounded-lg font-medium transition-colors"
             >
               创建
             </button>

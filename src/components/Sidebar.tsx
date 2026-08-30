@@ -1,7 +1,8 @@
 import { useState } from "react";
-import { Images, Tags, Play, ChevronLeft, ChevronRight, LogOut, Key } from "lucide-react";
+import { Images, Tags, Play, ChevronLeft, ChevronRight, LogOut, Key, Camera } from "lucide-react";
 import { cn } from "@/lib/utils";
 import type { PermissionLevel } from "@/lib/api";
+import { PERMISSION_LABELS, PERMISSION_TEXT_COLORS } from "@/lib/constants";
 
 interface NavItem {
   key: string;
@@ -20,18 +21,6 @@ const adminNavItems: NavItem[] = [
   { key: "access-keys", label: "访问密钥", icon: <Key size={20} />, requiredPermission: "admin" },
 ];
 
-const permissionLabels: Record<PermissionLevel, string> = {
-  viewer: "浏览者",
-  editor: "编辑者",
-  admin: "管理员",
-};
-
-const permissionColors: Record<PermissionLevel, string> = {
-  viewer: "text-blue-400",
-  editor: "text-green-400",
-  admin: "text-orange-400",
-};
-
 interface SidebarProps {
   activeKey?: string;
   onNavigate?: (key: string) => void;
@@ -48,6 +37,22 @@ export default function Sidebar({ activeKey = "albums", onNavigate, permission, 
     return permOrder[permission] >= permOrder[item.requiredPermission];
   };
 
+  const renderItem = (item: NavItem) => (
+    <button
+      key={item.key}
+      onClick={() => onNavigate?.(item.key)}
+      className={cn(
+        "flex items-center gap-3 px-3 py-2.5 rounded-full text-sm font-medium transition-all duration-200",
+        activeKey === item.key
+          ? "bg-[#E8845C]/20 text-[#E8845C] shadow-[0_0_12px_rgba(232,132,92,0.25)]"
+          : "text-[#F5F0EB]/60 hover:bg-white/5 hover:text-[#F5F0EB]"
+      )}
+    >
+      <span className="shrink-0">{item.icon}</span>
+      {!collapsed && <span style={{ fontFamily: "'DM Sans', sans-serif" }}>{item.label}</span>}
+    </button>
+  );
+
   return (
     <aside
       className={cn(
@@ -57,7 +62,7 @@ export default function Sidebar({ activeKey = "albums", onNavigate, permission, 
     >
       {/* Logo */}
       <div className="flex items-center gap-2 px-4 py-6">
-        <span className="text-[#E8845C] text-2xl font-bold shrink-0">📷</span>
+        <Camera size={24} className="text-[#E8845C] shrink-0" />
         {!collapsed && (
           <h1
             className="text-xl font-bold text-[#F5F0EB] whitespace-nowrap"
@@ -70,22 +75,8 @@ export default function Sidebar({ activeKey = "albums", onNavigate, permission, 
 
       {/* Navigation */}
       <nav className="flex-1 flex flex-col gap-1 px-2 mt-2">
-        {navItems.filter(canAccess).map((item) => (
-          <button
-            key={item.key}
-            onClick={() => onNavigate?.(item.key)}
-            className={cn(
-              "flex items-center gap-3 px-3 py-2.5 rounded-full text-sm font-medium transition-all duration-200",
-              activeKey === item.key
-                ? "bg-[#E8845C]/20 text-[#E8845C] shadow-[0_0_12px_rgba(232,132,92,0.25)]"
-                : "text-[#F5F0EB]/60 hover:bg-white/5 hover:text-[#F5F0EB]"
-            )}
-          >
-            <span className="shrink-0">{item.icon}</span>
-            {!collapsed && <span style={{ fontFamily: "'DM Sans', sans-serif" }}>{item.label}</span>}
-          </button>
-        ))}
-        
+        {navItems.filter(canAccess).map(renderItem)}
+
         {/* Admin section */}
         {adminNavItems.filter(canAccess).length > 0 && (
           <>
@@ -94,21 +85,7 @@ export default function Sidebar({ activeKey = "albums", onNavigate, permission, 
                 <span className="text-xs text-[#F5F0EB]/30 uppercase tracking-wider">管理</span>
               </div>
             )}
-            {adminNavItems.filter(canAccess).map((item) => (
-              <button
-                key={item.key}
-                onClick={() => onNavigate?.(item.key)}
-                className={cn(
-                  "flex items-center gap-3 px-3 py-2.5 rounded-full text-sm font-medium transition-all duration-200",
-                  activeKey === item.key
-                    ? "bg-[#E8845C]/20 text-[#E8845C] shadow-[0_0_12px_rgba(232,132,92,0.25)]"
-                    : "text-[#F5F0EB]/60 hover:bg-white/5 hover:text-[#F5F0EB]"
-                )}
-              >
-                <span className="shrink-0">{item.icon}</span>
-                {!collapsed && <span style={{ fontFamily: "'DM Sans', sans-serif" }}>{item.label}</span>}
-              </button>
-            ))}
+            {adminNavItems.filter(canAccess).map(renderItem)}
           </>
         )}
       </nav>
@@ -119,14 +96,14 @@ export default function Sidebar({ activeKey = "albums", onNavigate, permission, 
           {!collapsed && (
             <div className="text-xs">
               <p className="text-[#F5F0EB]/40">权限</p>
-              <p className={cn("font-medium", permissionColors[permission])}>
-                {permissionLabels[permission]}
+              <p className={cn("font-medium", PERMISSION_TEXT_COLORS[permission])}>
+                {PERMISSION_LABELS[permission]}
               </p>
             </div>
           )}
           {collapsed && (
-            <div className={cn("w-8 h-8 rounded-full flex items-center justify-center text-xs font-medium", permissionColors[permission], "bg-white/10")}>
-              {permissionLabels[permission][0]}
+            <div className={cn("w-8 h-8 rounded-full flex items-center justify-center text-xs font-medium", PERMISSION_TEXT_COLORS[permission], "bg-white/10")}>
+              {PERMISSION_LABELS[permission][0]}
             </div>
           )}
         </div>
@@ -146,6 +123,7 @@ export default function Sidebar({ activeKey = "albums", onNavigate, permission, 
       <button
         onClick={() => setCollapsed(!collapsed)}
         className="absolute -right-3 top-1/2 -translate-y-1/2 w-6 h-6 rounded-full bg-[#16213E] border border-white/10 flex items-center justify-center text-[#F5F0EB]/60 hover:text-[#E8845C] hover:border-[#E8845C]/40 transition-colors z-10"
+        aria-label={collapsed ? "展开侧栏" : "收起侧栏"}
       >
         {collapsed ? <ChevronRight size={14} /> : <ChevronLeft size={14} />}
       </button>

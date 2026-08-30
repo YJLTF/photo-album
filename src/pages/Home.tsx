@@ -1,27 +1,35 @@
 import { useEffect, useState, useCallback } from "react";
 import { useNavigate } from "react-router-dom";
-import { Plus, FolderOpen, Camera, Tag as TagIcon, Play, Upload } from "lucide-react";
-import { albumApi, imageApi, tagApi, slideshowApi, getImageUrlWithAuth, type Album, type ImageItem, type Tag, type Slideshow, type PermissionLevel } from "@/lib/api";
+import { Plus, FolderOpen, Camera, Tag as TagIcon } from "lucide-react";
+import {
+  albumApi,
+  imageApi,
+  tagApi,
+  slideshowApi,
+  getThumbnailUrlWithAuth,
+  type Album,
+  type ImageItem,
+  type Tag,
+  type Slideshow,
+  type PermissionLevel,
+} from "@/lib/api";
+import { TAG_COLORS, EFFECT_LABELS } from "@/lib/constants";
 import AlbumCard from "@/components/AlbumCard";
 import UploadZone from "@/components/UploadZone";
 import TagPill from "@/components/TagPill";
 import SlideshowCard from "@/components/SlideshowCard";
 import Modal from "@/components/Modal";
 
-const TAG_COLORS = ["#E8845C", "#5CE8A0", "#5CA8E8", "#E85CA0", "#A05CE8", "#E8D45C"];
-
 export default function Home() {
   const navigate = useNavigate();
   const permission = localStorage.getItem("permission") as PermissionLevel;
-  
+
   const [albums, setAlbums] = useState<Album[]>([]);
   const [tags, setTags] = useState<Tag[]>([]);
   const [slideshows, setSlideshows] = useState<Slideshow[]>([]);
   const [recentImages, setRecentImages] = useState<ImageItem[]>([]);
   const [selectedAlbumId, setSelectedAlbumId] = useState("");
-  const [imageCounts, setImageCounts] = useState<Record<string, number>>({});
-  const [slideshowImageCounts, setSlideshowImageCounts] = useState<Record<string, number>>({});
-  
+
   const [showCreateModal, setShowCreateModal] = useState(false);
   const [newAlbumName, setNewAlbumName] = useState("");
   const [editingAlbum, setEditingAlbum] = useState<{ id: string; name: string } | null>(null);
@@ -29,50 +37,27 @@ export default function Home() {
   const [showTagModal, setShowTagModal] = useState(false);
   const [newTagName, setNewTagName] = useState("");
 
-  useEffect(() => {
-    fetchData();
-  }, []);
-
-  const fetchData = async () => {
+  const fetchData = useCallback(async () => {
     try {
-      const [albumsData, tagsData, slideshowsData] = await Promise.all([
+      // 相册/轮播列表各自带 imageCount，最近照片走独立接口，全程只有 4 个请求
+      const [albumsData, tagsData, slideshowsData, recent] = await Promise.all([
         albumApi.getAll(),
         tagApi.getAll(),
         slideshowApi.getAll(),
+        imageApi.getRecent(8),
       ]);
       setAlbums(albumsData);
       setTags(tagsData);
       setSlideshows(slideshowsData);
-      
-      const counts: Record<string, number> = {};
-      for (const album of albumsData) {
-        const images = await imageApi.getByAlbum(album.id);
-        counts[album.id] = images.length;
-      }
-      setImageCounts(counts);
-      
-      const slideCounts: Record<string, number> = {};
-      for (const sl of slideshowsData) {
-        const slideData = await slideshowApi.getById(sl.id);
-        slideCounts[sl.id] = slideData.images.length;
-      }
-      setSlideshowImageCounts(slideCounts);
-      
-      loadRecent();
+      setRecentImages(recent);
     } catch (error) {
       console.error("Failed to fetch data:", error);
     }
-  };
+  }, []);
 
-  const loadRecent = useCallback(async () => {
-    const allImages: ImageItem[] = [];
-    for (const album of albums) {
-      const images = await imageApi.getByAlbum(album.id);
-      allImages.push(...images);
-    }
-    allImages.sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime());
-    setRecentImages(allImages.slice(0, 8));
-  }, [albums]);
+  useEffect(() => {
+    fetchData();
+  }, [fetchData]);
 
   const handleCreateAlbum = useCallback(async () => {
     const name = newAlbumName.trim();
@@ -81,7 +66,7 @@ export default function Home() {
     setNewAlbumName("");
     setShowCreateModal(false);
     fetchData();
-  }, [newAlbumName]);
+  }, [newAlbumName, fetchData]);
 
   const handleRenameAlbum = useCallback(async () => {
     if (!editingAlbum || !editName.trim()) return;
@@ -89,20 +74,26 @@ export default function Home() {
     setEditingAlbum(null);
     setEditName("");
     fetchData();
-  }, [editingAlbum, editName]);
+  }, [editingAlbum, editName, fetchData]);
 
   const handleDeleteAlbum = useCallback(async (id: string) => {
+    const album = albums.find(a => a.id === id);
+    if (!confirm(`确定要删除相册「${album?.name ?? ""}」吗？其中的 ${album?.imageCount ?? 0} 张图片将被永久删除。`)) return;
     await albumApi.delete(id);
     fetchData();
-  }, []);
+  }, [albums, fetchData]);
 
-  const handleUpload = useCallback(async (files: FileList) => {
+  const handleUpload = useCallback(async (
+    files: FileList,
+    onFileProgress?: (fileName: string, percent: number) => void
+  ) => {
     if (!selectedAlbumId) return;
     for (let i = 0; i < files.length; i++) {
-      await imageApi.upload(selectedAlbumId, files[i]);
+      const file = files[i];
+      await imageApi.upload(selectedAlbumId, file, percent => onFileProgress?.(file.name, percent));
     }
     fetchData();
-  }, [selectedAlbumId]);
+  }, [selectedAlbumId, fetchData]);
 
   const handleCreateTag = useCallback(async () => {
     const name = newTagName.trim();
@@ -113,24 +104,28 @@ export default function Home() {
     setShowTagModal(false);
     fetchData();
     window.dispatchEvent(new Event('tagCreated'));
-  }, [newTagName, tags.length]);
+  }, [newTagName, tags.length, fetchData]);
 
   const handleDeleteTag = useCallback(async (id: string) => {
+    const tag = tags.find(t => t.id === id);
+    if (!confirm(`确定要删除标签「${tag?.name ?? ""}」吗？`)) return;
     await tagApi.delete(id);
     fetchData();
     window.dispatchEvent(new Event('tagDeleted'));
-  }, []);
+  }, [tags, fetchData]);
 
   const handleDeleteSlideshow = useCallback(async (id: string) => {
+    const slideshow = slideshows.find(s => s.id === id);
+    if (!confirm(`确定要删除轮播「${slideshow?.name ?? ""}」吗？`)) return;
     await slideshowApi.delete(id);
     fetchData();
-  }, []);
+  }, [slideshows, fetchData]);
 
   const handleUpdateCover = useCallback(async (albumId: string, file: File) => {
     const newImage = await imageApi.upload(albumId, file);
     await albumApi.update(albumId, { coverImageId: newImage.id });
     fetchData();
-  }, []);
+  }, [fetchData]);
 
   const canEdit = permission === "editor" || permission === "admin";
 
@@ -230,8 +225,8 @@ export default function Home() {
                   album={{
                     id: album.id,
                     name: album.name,
-                    coverUrl: album.coverImageId ? getImageUrlWithAuth(album.coverImageId) : undefined,
-                    imageCount: imageCounts[album.id] ?? 0,
+                    coverUrl: album.coverImageId ? getThumbnailUrlWithAuth(album.coverImageId) : undefined,
+                    imageCount: album.imageCount ?? 0,
                   }}
                   onClick={() => navigate(`/album/${album.id}`)}
                   onEdit={canEdit ? () => { setEditingAlbum({ id: album.id, name: album.name }); setEditName(album.name); } : undefined}
@@ -281,10 +276,11 @@ export default function Home() {
                   className="aspect-square rounded-lg overflow-hidden cursor-pointer group"
                 >
                   <img
-                    src={getImageUrlWithAuth(image.id)}
+                    src={getThumbnailUrlWithAuth(image.id)}
                     alt={image.name}
                     className="w-full h-full object-cover transition-transform duration-300 group-hover:scale-110"
                     loading="lazy"
+                    decoding="async"
                   />
                 </div>
               ))}
@@ -314,7 +310,8 @@ export default function Home() {
                   slideshow={{
                     id: slideshow.id,
                     name: slideshow.name,
-                    imageCount: slideshowImageCounts[slideshow.id] ?? 0,
+                    imageCount: slideshow.imageCount ?? 0,
+                    transitionEffect: EFFECT_LABELS[slideshow.transitionEffect],
                   }}
                   onEdit={() => navigate(`/slideshow/edit?slideshowId=${slideshow.id}`)}
                   onDelete={canEdit ? () => handleDeleteSlideshow(slideshow.id) : undefined}
