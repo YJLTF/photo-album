@@ -54,7 +54,7 @@ export default function Login({ onLogin }: LoginProps) {
           </div>
 
           {/* Title */}
-          <h1 className="text-2xl font-bold text-center text-[#F5F0EB] mb-2" style={{ fontFamily: "'Playfair Display', serif" }}>
+          <h1 className="text-2xl font-bold text-center text-[#F5F0EB] mb-2 font-display">
             光影集
           </h1>
           <p className="text-center text-[#F5F0EB]/50 text-sm mb-8">
@@ -69,6 +69,7 @@ export default function Login({ onLogin }: LoginProps) {
                 value={key}
                 onChange={(e) => setKey(e.target.value)}
                 placeholder="访问密码"
+                autoComplete="current-password"
                 className="w-full bg-[#1A1A2E] border border-white/10 rounded-xl px-4 py-3 text-[#F5F0EB] placeholder-[#F5F0EB]/30 outline-none focus:border-[#E8845C]/50 transition-colors pr-12"
               />
               <button

@@ -53,7 +53,7 @@ export default function Sidebar({ activeKey = "albums", onNavigate, permission, 
       )}
     >
       <span className="shrink-0">{item.icon}</span>
-      {!collapsed && <span style={{ fontFamily: "'DM Sans', sans-serif" }}>{item.label}</span>}
+      {!collapsed && <span className="font-sans">{item.label}</span>}
     </button>
   );
 
@@ -69,8 +69,7 @@ export default function Sidebar({ activeKey = "albums", onNavigate, permission, 
         <Camera size={24} className="text-[#E8845C] shrink-0" />
         {!collapsed && (
           <h1
-            className="text-xl font-bold text-[#F5F0EB] whitespace-nowrap"
-            style={{ fontFamily: "'Playfair Display', serif" }}
+            className="text-xl font-bold text-[#F5F0EB] whitespace-nowrap font-display"
           >
             光影集
           </h1>
@@ -119,7 +118,7 @@ export default function Sidebar({ activeKey = "albums", onNavigate, permission, 
           )}
         >
           <span className="shrink-0"><LogOut size={16} /></span>
-          {!collapsed && <span style={{ fontFamily: "'DM Sans', sans-serif" }}>登出</span>}
+          {!collapsed && <span className="font-sans">登出</span>}
         </button>
       </div>
 

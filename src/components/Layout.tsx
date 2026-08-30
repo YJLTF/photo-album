@@ -35,8 +35,12 @@ export default function Layout({ permission, onLogout }: LayoutProps) {
         navigate("/tags");
         break;
       case "slideshows":
-        // 只读用户进编辑页只能看到一屏禁用的表单，跳回主页看轮播卡片更合理
-        navigate(permission === "viewer" ? "/" : "/slideshow/edit");
+        // 只读用户进编辑页只能看到一屏禁用的表单；跳回主页并滚动定位到轮播区块
+        if (permission === "viewer") {
+          navigate("/", { state: { scrollTo: "slideshows" } });
+        } else {
+          navigate("/slideshow/edit");
+        }
         break;
       case "access-keys":
         navigate("/admin/keys");
@@ -93,7 +97,7 @@ export default function Layout({ permission, onLogout }: LayoutProps) {
           </button>
           <div className="flex items-center gap-2 flex-1 min-w-0">
             <Camera size={18} className="text-[#E8845C] shrink-0" />
-            <span className="text-base font-bold text-[#F5F0EB] whitespace-nowrap" style={{ fontFamily: "'Playfair Display', serif" }}>
+            <span className="text-base font-bold text-[#F5F0EB] whitespace-nowrap font-display">
               光影集
             </span>
           </div>

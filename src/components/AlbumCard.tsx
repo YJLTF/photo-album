@@ -78,12 +78,11 @@ export default function AlbumCard({ album, onEdit, onDelete, onUploadCover, onCl
       {/* Info */}
       <div className="px-4 py-3">
         <h3
-          className="text-sm font-semibold text-[#F5F0EB] truncate"
-          style={{ fontFamily: "'Playfair Display', serif" }}
+          className="text-sm font-semibold text-[#F5F0EB] truncate font-display"
         >
           {album.name}
         </h3>
-        <div className="flex items-center gap-1 mt-1 text-[#F5F0EB]/40 text-xs" style={{ fontFamily: "'DM Sans', sans-serif" }}>
+        <div className="flex items-center gap-1 mt-1 text-[#F5F0EB]/40 text-xs font-sans">
           <Image size={12} />
           <span>{album.imageCount} 张图片</span>
         </div>

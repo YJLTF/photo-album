@@ -22,15 +22,14 @@ export default function SlideshowCard({ slideshow, onPlay, onEdit, onDelete }: S
 
       {/* Name */}
       <h3
-        className="text-sm font-semibold text-[#F5F0EB] text-center truncate"
-        style={{ fontFamily: "'Playfair Display', serif" }}
+        className="text-sm font-semibold text-[#F5F0EB] text-center truncate font-display"
       >
         {slideshow.name}
       </h3>
 
       {/* Meta */}
       <div className="flex items-center justify-center gap-2 mt-2">
-        <span className="text-xs text-[#F5F0EB]/40" style={{ fontFamily: "'DM Sans', sans-serif" }}>
+        <span className="text-xs text-[#F5F0EB]/40 font-sans">
           {slideshow.imageCount} 张图片
         </span>
         {slideshow.transitionEffect && (

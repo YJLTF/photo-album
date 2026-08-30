@@ -42,13 +42,21 @@ export default function SlideshowEdit() {
   const [slideshows, setSlideshows] = useState<Slideshow[]>([]);
 
   const fetchAlbums = async () => {
-    const data = await albumApi.getAll();
-    setAlbums(data);
+    try {
+      const data = await albumApi.getAll();
+      setAlbums(data);
+    } catch (error) {
+      console.error('Failed to load albums:', error);
+    }
   };
 
   const loadSlideshows = async () => {
-    const data = await slideshowApi.getAll();
-    setSlideshows(data);
+    try {
+      const data = await slideshowApi.getAll();
+      setSlideshows(data);
+    } catch (error) {
+      console.error('Failed to load slideshows:', error);
+    }
   };
 
   useEffect(() => {
@@ -79,39 +87,32 @@ export default function SlideshowEdit() {
           imageId: s.imageId, overlayText: s.overlayText,
           textPosition: s.textPosition, textColor: s.textColor, textSize: s.textSize,
         })));
+        setSelectedIdx(-1);
 
-        // 尝试定位第一张图片所在的相册用于左侧预览
-        if (sl.images.length > 0 && albums.length > 0 && !selectedAlbumId) {
-          const firstImageId = sl.images[0].imageId;
-          for (const album of albums) {
-            const imgs = (await imageApi.getByAlbum(album.id)).items;
-            if (imgs.some(img => img.id === firstImageId)) {
-              setSelectedAlbumId(album.id);
-              setAlbumImages(imgs.filter(i => i.type !== "video"));
-              break;
-            }
+        // 用元数据接口反查第一张图片所属相册，用于左侧可用图片预览；
+        // 首图可能已被删除，查不到就保持当前相册选择
+        if (sl.images.length > 0 && !selectedAlbumId) {
+          try {
+            const meta = await imageApi.getMeta(sl.images[0].imageId);
+            const imgs = (await imageApi.getByAlbum(meta.albumId)).items.filter(i => i.type !== 'video');
+            setSelectedAlbumId(meta.albumId);
+            setAlbumImages(imgs);
+          } catch {
+            // 首图已被删除或不在任何相册，忽略
           }
         }
       } catch (error) {
         console.error('Failed to load slideshow:', error);
+        toast.error(error instanceof Error ? error.message : '轮播加载失败');
       }
     })();
-    // selectedAlbumId 仅作为"是否已手动选相册"的初始判断，加入依赖会导致切相册时重置编辑内容
+    // 仅在 slideshowId 变化时加载；selectedAlbumId 是"是否已手动选相册"的初始判断
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [slideshowId, albums]);
+  }, [slideshowId]);
 
-  const loadSlideshow = async (id: string) => {
-    const sl = await slideshowApi.getById(id);
-    setExistingId(sl.id);
-    setName(sl.name);
-    setEffect(sl.transitionEffect);
-    setIntervalSec(sl.interval);
-    setAutoPlay(sl.autoPlay);
-    setSlides(sl.images.map(s => ({
-      imageId: s.imageId, overlayText: s.overlayText,
-      textPosition: s.textPosition, textColor: s.textColor, textSize: s.textSize,
-    })));
-    setSelectedIdx(-1);
+  // 从下拉框切换/进入已保存轮播：只改 URL 参数，加载统一由上面的 effect 完成，
+  // 避免 getById 拉两次
+  const loadSlideshow = (id: string) => {
     const newParams = new URLSearchParams();
     newParams.set('slideshowId', id);
     navigate(`?${newParams.toString()}`);
@@ -173,7 +174,6 @@ export default function SlideshowEdit() {
       toast.success("轮播已保存");
     } catch (error) {
       toast.error(error instanceof Error ? error.message : "保存失败");
-      throw error;
     } finally {
       setSaving(false);
     }
@@ -182,10 +182,10 @@ export default function SlideshowEdit() {
   const canEdit = permission === "editor" || permission === "admin";
 
   return (
-    <div className="h-screen flex flex-col bg-[#1A1A2E] text-[#F5F0EB]" style={{ fontFamily: "'DM Sans', sans-serif" }}>
+    <div className="h-screen flex flex-col bg-[#1A1A2E] text-[#F5F0EB] font-sans">
       {/* Header */}
       <header className="flex flex-wrap items-center gap-2 sm:gap-4 px-4 sm:px-6 py-3 border-b border-white/5 bg-[#16213E]">
-        <h1 className="text-lg font-semibold whitespace-nowrap" style={{ fontFamily: "'Playfair Display', serif" }}>编辑轮播</h1>
+        <h1 className="text-lg font-semibold whitespace-nowrap font-display">编辑轮播</h1>
         <select
           value={existingId || ''}
           onChange={e => {
@@ -406,7 +406,7 @@ export default function SlideshowEdit() {
               </label>
               <input
                 type="range"
-                min="1" max="10"
+                min="1" max="60"
                 value={intervalSec}
                 onChange={e => { if (canEdit) setIntervalSec(parseInt(e.target.value)); }}
                 disabled={!canEdit}

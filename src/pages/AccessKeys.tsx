@@ -19,6 +19,8 @@ export default function AccessKeys() {
   const [newPermission, setNewPermission] = useState<PermissionLevel>("viewer");
   const [newDescription, setNewDescription] = useState("");
   const [editNewKey, setEditNewKey] = useState("");
+  const [editPermission, setEditPermission] = useState<PermissionLevel>("viewer");
+  const [editDescription, setEditDescription] = useState("");
   const [copiedId, setCopiedId] = useState<string | null>(null);
   const [createError, setCreateError] = useState("");
   const [editError, setEditError] = useState("");
@@ -74,17 +76,42 @@ export default function AccessKeys() {
   };
 
   const handleEdit = async () => {
-    if (!editingKey || !editNewKey || editNewKey.length < 6) return;
+    if (!editingKey) return;
+    // 密钥值留空表示不修改；填写时同样要求至少 6 个字符
+    const wantsKeyChange = editNewKey.length > 0;
+    if (wantsKeyChange && editNewKey.length < 6) return;
+    const permissionChanged = editPermission !== editingKey.permission;
+    const descriptionChanged = editDescription !== (editingKey.description ?? "");
+    if (!wantsKeyChange && !permissionChanged && !descriptionChanged) {
+      setShowEditModal(false);
+      setEditingKey(null);
+      return;
+    }
+
     setEditError("");
     try {
-      await accessKeyApi.updateKey(editingKey.id, editNewKey);
+      if (wantsKeyChange) {
+        await accessKeyApi.updateKey(editingKey.id, editNewKey);
+      }
+      if (permissionChanged || descriptionChanged) {
+        await accessKeyApi.update(editingKey.id, {
+          ...(permissionChanged ? { permission: editPermission } : {}),
+          ...(descriptionChanged ? { description: editDescription } : {}),
+        });
+      }
       setShowEditModal(false);
       setEditingKey(null);
       setEditNewKey("");
 
-      if (!forceLogoutIfCurrentKey(editingKey)) {
+      // 修改密钥值后旧 token 立即失效，需要强制重新登录；仅改权限/描述时刷新列表即可
+      if (wantsKeyChange) {
+        if (!forceLogoutIfCurrentKey(editingKey)) {
+          loadKeys();
+        }
+      } else {
         loadKeys();
       }
+      toast.success("密钥已更新");
     } catch (error) {
       console.error("Failed to update access key:", error);
       setEditError(extractMessage(error, "修改失败"));
@@ -102,7 +129,7 @@ export default function AccessKeys() {
         loadKeys();
       }
     } catch (error) {
-      console.error("Failed to delete access key:", error);
+      toast.error(extractMessage(error, "删除失败"));
     }
   };
 
@@ -118,8 +145,15 @@ export default function AccessKeys() {
       }
       toast.success(key.active ? "密钥已禁用" : "密钥已启用");
     } catch (error) {
-      console.error("Failed to toggle access key:", error);
+      toast.error(extractMessage(error, `${action}失败`));
     }
+  };
+
+  // 与后端 assertNotLastAdmin 一致：仅拦住"最后一个启用的管理员"，
+  // 存在多个管理员时允许正常管理（禁用/删除其余管理员密钥）
+  const isLastActiveAdmin = (key: AccessKey) => {
+    const activeAdminCount = keys.filter(k => k.permission === "admin" && k.active).length;
+    return key.permission === "admin" && key.active && activeAdminCount <= 1;
   };
 
   const copyToClipboard = async (text: string, id: string) => {
@@ -134,7 +168,10 @@ export default function AccessKeys() {
 
   const openEditModal = (key: AccessKey) => {
     setEditingKey(key);
-    setEditNewKey(key.key);
+    // 密钥值默认留空（不修改）；权限/描述预填当前值
+    setEditNewKey("");
+    setEditPermission(key.permission);
+    setEditDescription(key.description ?? "");
     setShowEditModal(true);
   };
 
@@ -143,7 +180,7 @@ export default function AccessKeys() {
       {/* Header */}
       <div className="flex flex-wrap items-center justify-between gap-3 mb-6 sm:mb-8">
         <div className="min-w-0">
-          <h1 className="text-xl sm:text-2xl font-bold text-[#F5F0EB] mb-1" style={{ fontFamily: "'Playfair Display', serif" }}>
+          <h1 className="text-xl sm:text-2xl font-bold text-[#F5F0EB] mb-1 font-display">
             访问密钥管理
           </h1>
           <p className="text-[#F5F0EB]/50 text-sm">管理用户的访问密钥和权限</p>
@@ -211,8 +248,8 @@ export default function AccessKeys() {
                 >
                   <Edit2 size={18} />
                 </button>
-                {key.permission === "admin" ? (
-                  <span className="px-3 py-1.5 rounded-lg text-xs font-medium bg-purple-500/20 text-purple-400 cursor-not-allowed" title="管理员密钥不能被禁用">
+                {isLastActiveAdmin(key) ? (
+                  <span className="px-3 py-1.5 rounded-lg text-xs font-medium bg-purple-500/20 text-purple-400 cursor-not-allowed" title="不能禁用最后一个启用的管理员密钥">
                     管理员
                   </span>
                 ) : (
@@ -230,13 +267,13 @@ export default function AccessKeys() {
                 <button
                   onClick={() => handleDelete(key.id)}
                   className={`p-2 rounded-lg transition-colors ${
-                    key.permission === "admin"
+                    isLastActiveAdmin(key)
                       ? "text-[#F5F0EB]/20 cursor-not-allowed"
                       : "hover:bg-red-500/20 text-[#F5F0EB]/60 hover:text-red-400"
                   }`}
-                  title={key.permission === "admin" ? "管理员密钥不能删除" : "删除密钥"}
+                  title={isLastActiveAdmin(key) ? "不能删除最后一个启用的管理员密钥" : "删除密钥"}
                   aria-label="删除密钥"
-                  disabled={key.permission === "admin"}
+                  disabled={isLastActiveAdmin(key)}
                 >
                   <Trash2 size={18} />
                 </button>
@@ -249,7 +286,7 @@ export default function AccessKeys() {
       {/* Create Modal */}
       <Modal isOpen={showCreateModal} onClose={() => setShowCreateModal(false)}>
         <div className="p-6">
-          <h3 className="text-lg font-semibold text-[#F5F0EB] mb-6" style={{ fontFamily: "'Playfair Display', serif" }}>
+          <h3 className="text-lg font-semibold text-[#F5F0EB] mb-6 font-display">
             创建访问密钥
           </h3>
 
@@ -323,7 +360,7 @@ export default function AccessKeys() {
       {/* Edit Modal */}
       <Modal isOpen={showEditModal && !!editingKey} onClose={() => setShowEditModal(false)}>
         <div className="p-6">
-          <h3 className="text-lg font-semibold text-[#F5F0EB] mb-6" style={{ fontFamily: "'Playfair Display', serif" }}>
+          <h3 className="text-lg font-semibold text-[#F5F0EB] mb-6 font-display">
             修改密钥
           </h3>
 
@@ -339,7 +376,7 @@ export default function AccessKeys() {
 
             <div>
               <label className="block text-sm font-medium text-[#F5F0EB]/70 mb-2">
-                新密钥 <span className="text-red-400">*</span>
+                新密钥（留空则不修改）
               </label>
               <input
                 type="text"
@@ -348,12 +385,46 @@ export default function AccessKeys() {
                   setEditNewKey(e.target.value);
                   setEditError("");
                 }}
-                placeholder="请输入新密钥（至少6个字符）"
+                placeholder="留空则不修改密钥值；填写时至少 6 个字符"
                 className="w-full px-4 py-2.5 bg-[#1A1A2E] border border-white/10 rounded-lg text-[#F5F0EB] placeholder:text-[#F5F0EB]/30 focus:outline-none focus:border-[#E8845C]/50"
               />
               {editError && (
                 <p className="mt-1.5 text-red-400 text-sm">{editError}</p>
               )}
+            </div>
+
+            <div>
+              <label className="block text-sm font-medium text-[#F5F0EB]/70 mb-2">
+                权限级别
+              </label>
+              <select
+                value={editPermission}
+                onChange={(e) => {
+                  setEditPermission(e.target.value as PermissionLevel);
+                  setEditError("");
+                }}
+                className="w-full px-4 py-2.5 bg-[#1A1A2E] border border-white/10 rounded-lg text-[#F5F0EB] focus:outline-none focus:border-[#E8845C]/50"
+              >
+                <option value="viewer">浏览者 - 仅能查看</option>
+                <option value="editor">编辑者 - 可添加和管理内容</option>
+                <option value="admin">管理员 - 完整权限</option>
+              </select>
+            </div>
+
+            <div>
+              <label className="block text-sm font-medium text-[#F5F0EB]/70 mb-2">
+                描述
+              </label>
+              <input
+                type="text"
+                value={editDescription}
+                onChange={(e) => {
+                  setEditDescription(e.target.value);
+                  setEditError("");
+                }}
+                placeholder="例如：测试账号"
+                className="w-full px-4 py-2.5 bg-[#1A1A2E] border border-white/10 rounded-lg text-[#F5F0EB] placeholder:text-[#F5F0EB]/30 focus:outline-none focus:border-[#E8845C]/50"
+              />
             </div>
           </div>
 
@@ -366,7 +437,6 @@ export default function AccessKeys() {
             </button>
             <button
               onClick={handleEdit}
-              disabled={!editNewKey || editNewKey.length < 6}
               className="flex-1 px-4 py-2.5 bg-[#E8845C] rounded-lg font-medium hover:bg-[#E8845C]/80 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
             >
               保存

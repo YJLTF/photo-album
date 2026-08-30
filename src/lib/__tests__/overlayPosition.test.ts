@@ -23,11 +23,11 @@ describe("getOverlayPositionStyle", () => {
     });
   });
 
-  it("正中央：默认 top + 水平居中", () => {
+  it("正中央：水平垂直都居中，配合 translate 修正", () => {
     expect(getOverlayPositionStyle("center")).toEqual({
-      top: "20px",
+      top: "50%",
       left: "50%",
-      transform: "translateX(-50%)",
+      transform: "translate(-50%, -50%)",
     });
   });
 

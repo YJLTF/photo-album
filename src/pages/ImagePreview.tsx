@@ -15,6 +15,8 @@ export default function ImagePreview() {
   const [rotation, setRotation] = useState(0);
   const [error, setError] = useState(false);
   const [showControls, setShowControls] = useState(false);
+  // 切换图片时原图下载中，显示轻量指示器
+  const [switching, setSwitching] = useState(false);
 
   const hideTimerRef = useRef<number | null>(null);
   // 当前展示中的 object URL，切换时释放旧的，卸载时释放最后的
@@ -52,12 +54,17 @@ export default function ImagePreview() {
       setImageUrl(getImageUrlWithAuth(img.id));
       return;
     }
-    const blob = await imageApi.getById(img.id);
-    const url = URL.createObjectURL(blob);
-    if (displayedUrlRef.current) URL.revokeObjectURL(displayedUrlRef.current);
-    displayedUrlRef.current = url;
-    setImage(img);
-    setImageUrl(url);
+    setSwitching(true);
+    try {
+      const blob = await imageApi.getById(img.id);
+      const url = URL.createObjectURL(blob);
+      if (displayedUrlRef.current) URL.revokeObjectURL(displayedUrlRef.current);
+      displayedUrlRef.current = url;
+      setImage(img);
+      setImageUrl(url);
+    } finally {
+      setSwitching(false);
+    }
   }, []);
 
   useEffect(() => {
@@ -91,6 +98,17 @@ export default function ImagePreview() {
       }
     };
   }, [imageId, showImage]);
+
+  // 预取上一张/下一张原图进浏览器缓存（服务端带 Cache-Control），切换时近乎即时
+  useEffect(() => {
+    if (albumImages.length === 0) return;
+    for (const offset of [1, -1]) {
+      const neighbor = albumImages[(currentIndex + offset + albumImages.length) % albumImages.length];
+      if (neighbor && neighbor.type !== 'video') {
+        imageApi.warmup(neighbor.id);
+      }
+    }
+  }, [currentIndex, albumImages]);
 
   const goNext = useCallback(async () => {
     if (albumImages.length === 0) return;
@@ -180,7 +198,7 @@ export default function ImagePreview() {
   if (!image || !imageUrl) {
     return (
       <div className="fixed inset-0 bg-black flex items-center justify-center text-white/50">
-        Loading...
+        加载中...
       </div>
     );
   }
@@ -213,6 +231,11 @@ export default function ImagePreview() {
               transform: `scale(${scale}) rotate(${rotation}deg)`,
             }}
           />
+        )}
+        {switching && (
+          <div className="absolute inset-0 flex items-center justify-center pointer-events-none">
+            <div className="w-9 h-9 rounded-full border-2 border-white/20 border-t-white/80 animate-spin" />
+          </div>
         )}
       </div>
 

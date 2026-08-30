@@ -49,8 +49,7 @@ export default function Modal({ isOpen, onClose, title, children }: ModalProps) 
         {title && (
           <div className="flex items-center justify-between px-6 py-4 border-b border-white/5">
             <h2
-              className="text-lg font-semibold text-[#F5F0EB]"
-              style={{ fontFamily: "'Playfair Display', serif" }}
+              className="text-lg font-semibold text-[#F5F0EB] font-display"
             >
               {title}
             </h2>
@@ -76,7 +75,7 @@ export default function Modal({ isOpen, onClose, title, children }: ModalProps) 
         )}
 
         {/* Body */}
-        <div className="px-6 py-4 text-[#F5F0EB]" style={{ fontFamily: "'DM Sans', sans-serif" }}>
+        <div className="px-6 py-4 text-[#F5F0EB] font-sans">
           {children}
         </div>
       </div>

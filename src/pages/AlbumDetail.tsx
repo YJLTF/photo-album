@@ -6,9 +6,14 @@ import ImageCard from "@/components/ImageCard";
 import UploadZone from "@/components/UploadZone";
 import Modal from "@/components/Modal";
 import { toast } from "@/lib/toastStore";
+import { mapWithConcurrency } from "@/lib/utils";
 
 // 相册网格分页大小：一次只渲染一页，底部"加载更多"追加下一页
 const PAGE_SIZE = 50;
+// 服务端单次分页上限（routes/images.ts 的 parsePaging），合并请求时不能超过
+const MAX_PAGE_LIMIT = 500;
+// 批量操作的并发上限：上百张图片同时发请求会打满浏览器连接池
+const BATCH_CONCURRENCY = 4;
 
 export default function AlbumDetail() {
   const { albumId } = useParams();
@@ -44,11 +49,18 @@ export default function AlbumDetail() {
       setImageTags(tagMap);
 
       const first = await imageApi.getByAlbum(albumId, 1, PAGE_SIZE);
-      let items = first.items;
       const pagesToLoad = Math.min(Math.max(pages, 1), first.totalPages);
-      for (let p = 2; p <= pagesToLoad; p++) {
-        const extra = await imageApi.getByAlbum(albumId, p, PAGE_SIZE);
-        items = [...items, ...extra.items];
+      let items = first.items;
+      if (pagesToLoad > 1) {
+        // 需要的页数在服务端单次上限内时合成一个请求；超出（>10 页）才退回逐页串行
+        if (pagesToLoad * PAGE_SIZE <= MAX_PAGE_LIMIT) {
+          items = (await imageApi.getByAlbum(albumId, 1, pagesToLoad * PAGE_SIZE)).items;
+        } else {
+          for (let p = 2; p <= pagesToLoad; p++) {
+            const extra = await imageApi.getByAlbum(albumId, p, PAGE_SIZE);
+            items = [...items, ...extra.items];
+          }
+        }
       }
       loadedPagesRef.current = pagesToLoad;
       setImages(items);
@@ -96,13 +108,14 @@ export default function AlbumDetail() {
 
   const handleUpload = useCallback(async (
     files: FileList,
-    onFileProgress?: (fileName: string, percent: number) => void
+    onFileProgress?: (file: File, percent: number) => void
   ) => {
     if (!albumId) return;
     try {
       for (let i = 0; i < files.length; i++) {
         const file = files[i];
-        await imageApi.upload(albumId, file, percent => onFileProgress?.(file.name, percent));
+        await imageApi.upload(albumId, file, percent => onFileProgress?.(file, percent));
+        onFileProgress?.(file, 100);
       }
       toast.success(files.length > 1 ? `已上传 ${files.length} 个文件` : "已上传");
       fetchData();
@@ -114,27 +127,22 @@ export default function AlbumDetail() {
   const handleDeleteImage = useCallback(async (id: string) => {
     if (!confirm("确定要删除这张照片吗？删除后可在回收站恢复。")) return;
 
-    await imageApi.delete(id);
-
-    // 如果删除的是封面图片，尝试设置新封面
-    if (album?.coverImageId === id) {
-      const remainingImages = images.filter(img => img.id !== id);
-      if (remainingImages.length > 0) {
-        await albumApi.update(albumId!, { coverImageId: remainingImages[0].id });
-      } else {
-        await albumApi.update(albumId!, { coverImageId: null });
-      }
+    try {
+      // 封面顺延由服务端在删除时处理（见后端 DELETE /images/:id）
+      await imageApi.delete(id);
+      toast.success("照片已移入回收站");
+      fetchData();
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : "删除失败");
     }
-
-    toast.success("照片已移入回收站");
-    fetchData();
-  }, [album?.coverImageId, images, albumId, fetchData]);
+  }, [fetchData]);
 
   const handleBatchDelete = useCallback(async () => {
     const ids = Array.from(selectedImages);
     if (!confirm(`确定要删除选中的 ${ids.length} 张照片吗？删除后可在回收站恢复。`)) return;
 
-    // 检查是否删除封面图片
+    // 批量删除时封面顺延在本页数据里先算好，全部删完后一次性写回，
+    // 避免逐张删除与服务端顺延互相覆盖
     const coverImageId = album?.coverImageId;
     const deletingCover = Boolean(coverImageId && selectedImages.has(coverImageId));
     let newCoverId: string | null = null;
@@ -146,16 +154,36 @@ export default function AlbumDetail() {
       }
     }
 
-    await Promise.all(ids.map(id => imageApi.delete(id)));
+    try {
+      const results = await mapWithConcurrency(ids, BATCH_CONCURRENCY, async (id) => {
+        try {
+          await imageApi.delete(id);
+          return null;
+        } catch (error) {
+          return error instanceof Error ? error.message : "删除失败";
+        }
+      });
+      const failures = results.filter((r): r is string => r !== null);
 
-    // 更新封面
-    if (deletingCover) {
-      await albumApi.update(albumId!, { coverImageId: newCoverId });
+      if (failures.length === ids.length) {
+        toast.error(failures[0]);
+        return;
+      }
+
+      if (deletingCover) {
+        await albumApi.update(albumId!, { coverImageId: newCoverId }).catch(() => {});
+      }
+
+      setSelectedImages(new Set());
+      if (failures.length > 0) {
+        toast.error(`已删除 ${ids.length - failures.length} 张，${failures.length} 张失败：${failures[0]}`);
+      } else {
+        toast.success(`已将 ${ids.length} 张照片移入回收站`);
+      }
+      fetchData();
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : "批量删除失败");
     }
-
-    setSelectedImages(new Set());
-    toast.success(`已将 ${ids.length} 张照片移入回收站`);
-    fetchData();
   }, [selectedImages, album?.coverImageId, images, albumId, fetchData]);
 
   const handleAddTag = useCallback(async () => {
@@ -188,16 +216,28 @@ export default function AlbumDetail() {
     setNewTagId("");
     setSelectedImages(new Set());
 
-    await Promise.all(ids.map(async (id) => {
-      try {
-        await tagApi.addToImage(id, tagIdToUse);
-      } catch {
-        // 忽略重复添加的错误
-      }
-    }));
+    try {
+      // 有界并发：上百张图片同时打请求会占满浏览器连接池
+      const results = await mapWithConcurrency(ids, BATCH_CONCURRENCY, async (id) => {
+        try {
+          await tagApi.addToImage(id, tagIdToUse);
+          return null;
+        } catch {
+          // 单张失败（含重复添加）不中断其余
+          return id;
+        }
+      });
+      const failures = results.filter((r): r is string => r !== null);
 
-    toast.success(`已为 ${ids.length} 张照片添加标签`);
-    fetchData();
+      if (failures.length === 0) {
+        toast.success(`已为 ${ids.length} 张照片添加标签`);
+      } else {
+        toast.error(`已为 ${ids.length - failures.length} 张添加标签，${failures.length} 张失败`);
+      }
+      fetchData();
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : "批量添加标签失败");
+    }
   }, [newTagId, selectedImages, tags, fetchData]);
 
   const handleRemoveTag = useCallback(async (imageId: string, tagId: string) => {
@@ -242,7 +282,7 @@ export default function AlbumDetail() {
   }
 
   return (
-    <div className="min-h-screen bg-[#1A1A2E]" style={{ fontFamily: "'DM Sans', sans-serif" }}>
+    <div className="min-h-screen bg-[#1A1A2E] font-sans">
       {/* Header */}
       <header className="sticky top-0 z-10 bg-[#16213E]/80 backdrop-blur-md border-b border-white/5">
         <div className="max-w-7xl mx-auto px-4 sm:px-6 py-3 sm:py-4">
@@ -256,7 +296,7 @@ export default function AlbumDetail() {
                 <ArrowLeft size={20} className="text-[#F5F0EB]" />
               </button>
               <div className="min-w-0">
-                <h1 className="text-lg sm:text-xl font-bold text-[#F5F0EB] truncate" style={{ fontFamily: "'Playfair Display', serif" }}>
+                <h1 className="text-lg sm:text-xl font-bold text-[#F5F0EB] truncate font-display">
                   {album.name}
                 </h1>
                 <p className="text-sm text-[#F5F0EB]/50">{total} 个文件</p>
@@ -368,7 +408,7 @@ export default function AlbumDetail() {
             <div className="w-24 h-24 rounded-full bg-[#E8845C]/10 flex items-center justify-center mb-6">
               <Plus size={48} className="text-[#E8845C]/60" />
             </div>
-            <h3 className="text-xl font-semibold text-[#F5F0EB] mb-2" style={{ fontFamily: "'Playfair Display', serif" }}>
+            <h3 className="text-xl font-semibold text-[#F5F0EB] mb-2 font-display">
               暂无照片
             </h3>
             <p className="text-[#F5F0EB]/50">上传一些照片到这个相册</p>
@@ -379,7 +419,7 @@ export default function AlbumDetail() {
       {/* Add Tag Modal */}
       <Modal isOpen={showTagModal} onClose={() => setShowTagModal(false)}>
         <div className="p-6">
-          <h3 className="text-lg font-semibold text-[#F5F0EB] mb-4" style={{ fontFamily: "'Playfair Display', serif" }}>
+          <h3 className="text-lg font-semibold text-[#F5F0EB] mb-4 font-display">
             添加标签
           </h3>
           <select
@@ -416,7 +456,7 @@ export default function AlbumDetail() {
         setNewTagId("");
       }}>
         <div className="p-6">
-          <h3 className="text-lg font-semibold text-[#F5F0EB] mb-4" style={{ fontFamily: "'Playfair Display', serif" }}>
+          <h3 className="text-lg font-semibold text-[#F5F0EB] mb-4 font-display">
             批量添加标签
           </h3>
           <p className="text-sm text-[#F5F0EB]/50 mb-4">将标签添加到 {selectedImages.size} 张照片</p>

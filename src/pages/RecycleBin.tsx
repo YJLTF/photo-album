@@ -22,6 +22,8 @@ export default function RecycleBin() {
   const [albums, setAlbums] = useState<RecycleBinAlbum[]>([]);
   const [images, setImages] = useState<RecycleBinImage[]>([]);
   const [autoPurgeDisabled, setAutoPurgeDisabled] = useState(false);
+  // 服务端配置的真实保留天数；未启用自动清理时为 null
+  const [retentionDays, setRetentionDays] = useState<number | null>(null);
   const [loading, setLoading] = useState(true);
 
   const fetchBin = useCallback(async () => {
@@ -30,8 +32,10 @@ export default function RecycleBin() {
       setAlbums(data.albums);
       setImages(data.images);
       setAutoPurgeDisabled(Boolean(data.autoPurgeDisabled));
+      setRetentionDays(data.retentionDays ?? null);
     } catch (error) {
       console.error("Failed to load recycle bin:", error);
+      toast.error(error instanceof Error ? error.message : "回收站加载失败");
     } finally {
       setLoading(false);
     }
@@ -42,9 +46,13 @@ export default function RecycleBin() {
   }, [fetchBin]);
 
   const handleRestoreAlbum = async (album: RecycleBinAlbum) => {
-    await recycleApi.restoreAlbum(album.id);
-    toast.success(`相册「${album.name}」已恢复`);
-    fetchBin();
+    try {
+      await recycleApi.restoreAlbum(album.id);
+      toast.success(`相册「${album.name}」已恢复`);
+      fetchBin();
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : "恢复失败");
+    }
   };
 
   const handleRestoreImage = async (image: RecycleBinImage) => {
@@ -59,41 +67,55 @@ export default function RecycleBin() {
 
   const handlePurgeAlbum = async (album: RecycleBinAlbum) => {
     if (!confirm(`彻底删除相册「${album.name}」及其中的 ${album.imageCount} 张图片？此操作不可恢复。`)) return;
-    await recycleApi.purgeAlbum(album.id);
-    toast.success("相册已彻底删除");
-    fetchBin();
+    try {
+      await recycleApi.purgeAlbum(album.id);
+      toast.success("相册已彻底删除");
+      fetchBin();
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : "删除失败");
+    }
   };
 
   const handlePurgeImage = async (image: RecycleBinImage) => {
     if (!confirm(`彻底删除图片「${image.name}」？此操作不可恢复。`)) return;
-    await recycleApi.purgeImage(image.id);
-    toast.success("图片已彻底删除");
-    fetchBin();
+    try {
+      await recycleApi.purgeImage(image.id);
+      toast.success("图片已彻底删除");
+      fetchBin();
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : "删除失败");
+    }
   };
 
   const handleEmpty = async () => {
     if (!confirm("清空回收站中的所有相册与图片？此操作不可恢复。")) return;
-    await recycleApi.empty();
-    toast.success("回收站已清空");
-    fetchBin();
+    try {
+      await recycleApi.empty();
+      toast.success("回收站已清空");
+      fetchBin();
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : "清空失败");
+    }
   };
 
   const empty = albums.length === 0 && images.length === 0;
 
   return (
-    <div className="min-h-screen bg-[#1A1A2E]" style={{ fontFamily: "'DM Sans', sans-serif" }}>
+    <div className="min-h-screen bg-[#1A1A2E] font-sans">
       {/* Header */}
       <header className="sticky top-0 z-10 bg-[#16213E]/80 backdrop-blur-md border-b border-white/5">
         <div className="max-w-7xl mx-auto px-4 sm:px-6 py-3 sm:py-4">
           <div className="flex flex-wrap items-center justify-between gap-3">
             <div className="min-w-0">
-              <h1 className="text-lg sm:text-xl font-bold text-[#F5F0EB]" style={{ fontFamily: "'Playfair Display', serif" }}>
+              <h1 className="text-lg sm:text-xl font-bold text-[#F5F0EB] font-display">
                 回收站
               </h1>
               <p className="text-sm text-[#F5F0EB]/50 mt-1">
                 {autoPurgeDisabled
                   ? "删除的相册与图片可在彻底删除前恢复"
-                  : "删除的内容保留 30 天，到期自动彻底删除；期间可随时恢复"}
+                  : retentionDays
+                    ? `删除的内容保留 ${retentionDays} 天，到期自动彻底删除；期间可随时恢复`
+                    : "删除的内容保留一段时间，到期自动彻底删除；期间可随时恢复"}
               </p>
             </div>
             {!empty && (
@@ -117,7 +139,7 @@ export default function RecycleBin() {
             <div className="w-24 h-24 rounded-full bg-white/5 flex items-center justify-center mb-6">
               <Trash2 size={48} className="text-[#F5F0EB]/20" />
             </div>
-            <h3 className="text-xl font-semibold text-[#F5F0EB] mb-2" style={{ fontFamily: "'Playfair Display', serif" }}>
+            <h3 className="text-xl font-semibold text-[#F5F0EB] mb-2 font-display">
               回收站是空的
             </h3>
             <p className="text-[#F5F0EB]/50">删除的相册和图片会出现在这里</p>
@@ -127,7 +149,7 @@ export default function RecycleBin() {
             {/* 已删除的相册 */}
             {albums.length > 0 && (
               <section>
-                <h2 className="text-lg font-semibold mb-4" style={{ fontFamily: "'Playfair Display', serif" }}>
+                <h2 className="text-lg font-semibold mb-4 font-display">
                   相册（{albums.length}）
                 </h2>
                 <div className="space-y-3">
@@ -173,7 +195,7 @@ export default function RecycleBin() {
             {/* 单独删除的图片 */}
             {images.length > 0 && (
               <section>
-                <h2 className="text-lg font-semibold mb-4" style={{ fontFamily: "'Playfair Display', serif" }}>
+                <h2 className="text-lg font-semibold mb-4 font-display">
                   图片（{images.length}）
                 </h2>
                 <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
@@ -182,18 +204,17 @@ export default function RecycleBin() {
                       key={image.id}
                       className="rounded-xl bg-[#16213E]/50 border border-white/5 overflow-hidden"
                     >
-                      <div className="aspect-[4/3] bg-[#1A1A2E] flex items-center justify-center">
-                        {image.type === "video" ? (
-                          // 视频没有封面帧时不请求缩略图接口，直接显示占位图标
-                          <Film size={32} className="text-[#F5F0EB]/20" />
-                        ) : (
-                          <img
-                            src={getThumbnailUrlWithAuth(image.id)}
-                            alt={image.name}
-                            className="w-full h-full object-cover"
-                            loading="lazy"
-                          />
-                        )}
+                      <div className="aspect-[4/3] bg-[#1A1A2E] flex items-center justify-center relative">
+                        {/* 占位图标垫底；缩略图接口对视频返回上传时截取的封面帧，
+                            没有封面帧时加载失败会隐藏 <img>，露出占位图标 */}
+                        <Film size={32} className="text-[#F5F0EB]/20" />
+                        <img
+                          src={getThumbnailUrlWithAuth(image.id)}
+                          alt={image.name}
+                          className="absolute inset-0 w-full h-full object-cover"
+                          loading="lazy"
+                          onError={(e) => { e.currentTarget.style.display = "none"; }}
+                        />
                       </div>
                       <div className="p-3">
                         <p className="text-sm text-[#F5F0EB] truncate flex items-center gap-1.5" title={image.name}>

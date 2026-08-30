@@ -1,3 +1,6 @@
+/* 自托管西文字体（见 fonts.css 头部说明）；@import 必须位于文件最前 */
+@import "./fonts.css";
+
 @tailwind base;
 @tailwind components;
 @tailwind utilities;

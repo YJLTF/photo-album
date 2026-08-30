@@ -4,9 +4,17 @@ import { ChevronLeft, ChevronRight, RotateCcw } from 'lucide-react';
 import { slideshowApi, imageApi, type SlideshowWithImages, type SlideshowImageItem } from '@/lib/api';
 import { getOverlayPositionStyle } from '@/lib/overlayPosition';
 
-interface PlayableSlide {
+// 预取窗口：提前加载当前张的下一张/上一张，切换时近乎即时；其余按需加载，避免
+// 开播前把整个轮播的原图全部下载完（大相册会等待数百 MB）
+const PRELOAD_WINDOW = [0, 1, -1] as const;
+
+interface SlideshowMeta {
   id: string;
-  url: string;
+  name: string;
+  transitionEffect: SlideshowWithImages['transitionEffect'];
+  interval: number;
+  autoPlay: boolean;
+  images: SlideshowImageItem[];
 }
 
 export default function SlideshowPlay() {
@@ -15,8 +23,11 @@ export default function SlideshowPlay() {
   const slideshowId = params.get('slideshowId');
   const albumId = params.get('albumId');
 
-  const [currentSlideshow, setCurrentSlideshow] = useState<SlideshowWithImages | null>(null);
-  const [slides, setSlides] = useState<PlayableSlide[]>([]);
+  const [currentSlideshow, setCurrentSlideshow] = useState<SlideshowMeta | null>(null);
+  // 实际可播放（加载成功）的图片 id 顺序；已删除的图片在加载时被发现并跳过
+  const [slideIds, setSlideIds] = useState<string[]>([]);
+  // 已加载完成的 objectURL，按图片 id 索引
+  const [urlMap, setUrlMap] = useState<Record<string, string>>({});
   const [currentIndex, setCurrentIndex] = useState(0);
   const [isPlaying, setIsPlaying] = useState(true);
   const [error, setError] = useState('');
@@ -24,7 +35,14 @@ export default function SlideshowPlay() {
   const [transitionClass, setTransitionClass] = useState('');
 
   const hideTimerRef = useRef<number | null>(null);
-  const effectRef = useRef<string>('fade');
+  // goNext/goPrev 里切页用的 setTimeout，卸载时清理，避免对已卸载组件 setState
+  const transitionTimerRef = useRef<number | null>(null);
+  // 正在过渡时忽略后续切换，防止快速连点导致状态错乱
+  const transitioningRef = useRef(false);
+  const urlMapRef = useRef<Record<string, string>>({});
+  const failedIdsRef = useRef<Set<string>>(new Set());
+  // 本次会话创建的全部 objectURL，仅在卸载时释放（刷新列表时不能吊销正在显的 URL）
+  const createdUrlsRef = useRef<string[]>([]);
 
   const resetHideTimer = useCallback(() => {
     if (hideTimerRef.current) clearTimeout(hideTimerRef.current);
@@ -43,72 +61,34 @@ export default function SlideshowPlay() {
     };
   }, [resetHideTimer]);
 
-  useEffect(() => {
-    if (currentSlideshow) {
-      effectRef.current = currentSlideshow.transitionEffect;
-    }
-  }, [currentSlideshow]);
-
+  // 加载轮播/相册的元数据（不预载图片本体，图片由预取窗口按需加载）
   useEffect(() => {
     let cancelled = false;
-    // 本次运行创建的 object URL 统一记录，仅在清理时释放，
-    // 不能把 imageUrls state 放进依赖数组（会导致"设置状态→重跑→吊销在显 URL"的死循环）
-    const createdUrls: string[] = [];
-
-    const loadImage = async (id: string) => {
-      const blob = await imageApi.getById(id);
-      const url = URL.createObjectURL(blob);
-      createdUrls.push(url);
-      return url;
-    };
 
     const fetchData = async () => {
       try {
         if (slideshowId) {
           const slideshow = await slideshowApi.getById(slideshowId);
-          // 图片可能已被删除（404），逐张容错跳过而不是让整页卡死
-          const results = await Promise.allSettled(
-            slideshow.images.map(s => loadImage(s.imageId).then(url => ({ id: s.imageId, url })))
-          );
-          const playable = results
-            .filter((r): r is PromiseFulfilledResult<PlayableSlide> => r.status === 'fulfilled')
-            .map(r => r.value);
-
           if (cancelled) return;
-          if (playable.length === 0) {
-            setError('轮播中的图片都已被删除');
+          if (slideshow.images.length === 0) {
+            setError('轮播中还没有图片');
             return;
           }
-
           setCurrentSlideshow(slideshow);
-          setSlides(playable);
         } else if (albumId) {
-          // 轮播按图片处理，相册中的视频不参与（服务端无 ffmpeg 转码，播放节奏与定时器不匹配）
-          const albumImages = (await imageApi.getByAlbum(albumId)).items.filter(i => i.type !== "video");
+          // 相册轮播按图片处理，视频不参与（服务端无 ffmpeg 转码，播放节奏与定时器不匹配）
+          const albumImages = (await imageApi.getByAlbum(albumId)).items.filter(i => i.type !== 'video');
+          if (cancelled) return;
           if (albumImages.length === 0) {
             setError('相册中没有图片');
             return;
           }
-          const results = await Promise.allSettled(
-            albumImages.map(img => loadImage(img.id).then(url => ({ id: img.id, url })))
-          );
-          const playable = results
-            .filter((r): r is PromiseFulfilledResult<PlayableSlide> => r.status === 'fulfilled')
-            .map(r => r.value);
-
-          if (cancelled) return;
-          if (playable.length === 0) {
-            setError('图片加载失败');
-            return;
-          }
-
           setCurrentSlideshow({
             id: 'album',
             name: '相册轮播',
             transitionEffect: 'fade',
             interval: 3,
             autoPlay: true,
-            createdAt: new Date().toISOString(),
             images: albumImages.map((img, idx): SlideshowImageItem => ({
               id: img.id,
               slideshowId: 'album',
@@ -120,7 +100,6 @@ export default function SlideshowPlay() {
               textSize: 16,
             })),
           });
-          setSlides(playable);
         } else {
           setError('缺少轮播或相册参数');
         }
@@ -133,38 +112,102 @@ export default function SlideshowPlay() {
 
     return () => {
       cancelled = true;
-      createdUrls.forEach(url => URL.revokeObjectURL(url));
+      createdUrlsRef.current.forEach(url => URL.revokeObjectURL(url));
+      createdUrlsRef.current = [];
+      urlMapRef.current = {};
+      failedIdsRef.current = new Set();
+      if (transitionTimerRef.current) clearTimeout(transitionTimerRef.current);
+      setSlideIds([]);
+      setUrlMap({});
+      setCurrentIndex(0);
     };
   }, [slideshowId, albumId]);
 
+  // 元数据就绪后重置播放状态；首帧直接进入 -in 态，避免 slide/flip 效果下第一张不可见
+  useEffect(() => {
+    if (!currentSlideshow) return;
+    setSlideIds(currentSlideshow.images.map(s => s.imageId));
+    setUrlMap({});
+    urlMapRef.current = {};
+    failedIdsRef.current = new Set();
+    setCurrentIndex(0);
+    setTransitionClass(`${currentSlideshow.transitionEffect}-in`);
+  }, [currentSlideshow]);
+
+  // 预取窗口：当前张优先，其次下一张/上一张；失败的图片记录下来由跳过逻辑处理
+  useEffect(() => {
+    if (!currentSlideshow || slideIds.length === 0) return;
+    let cancelled = false;
+
+    (async () => {
+      for (const offset of PRELOAD_WINDOW) {
+        const idx = (currentIndex + offset + slideIds.length) % slideIds.length;
+        const id = slideIds[idx];
+        if (urlMapRef.current[id] || failedIdsRef.current.has(id)) continue;
+        try {
+          const blob = await imageApi.getById(id);
+          if (cancelled) return;
+          const url = URL.createObjectURL(blob);
+          createdUrlsRef.current.push(url);
+          urlMapRef.current[id] = url;
+          setUrlMap(prev => ({ ...prev, [id]: url }));
+        } catch {
+          if (cancelled) return;
+          failedIdsRef.current.add(id);
+          setUrlMap(prev => ({ ...prev }));
+        }
+      }
+    })();
+
+    return () => { cancelled = true; };
+  }, [currentSlideshow, slideIds, currentIndex]);
+
+  // 当前张加载失败（如图片已被删除）时跳到下一张；全部失败才报错
+  useEffect(() => {
+    if (slideIds.length === 0) return;
+    const currentId = slideIds[currentIndex];
+    if (currentId && !failedIdsRef.current.has(currentId)) return;
+    if (failedIdsRef.current.size >= slideIds.length) {
+      setError('轮播中的图片都已被删除');
+      return;
+    }
+    setCurrentIndex(prev => (prev + 1) % slideIds.length);
+  }, [slideIds, currentIndex, urlMap]);
+
   const goNext = useCallback(() => {
-    const currentEffect = effectRef.current;
+    if (slideIds.length === 0 || transitioningRef.current) return;
+    const currentEffect = currentSlideshow?.transitionEffect ?? 'fade';
+    transitioningRef.current = true;
     setTransitionClass(`${currentEffect}-out`);
-    setTimeout(() => {
-      setCurrentIndex(prev => (prev + 1) % slides.length);
+    transitionTimerRef.current = window.setTimeout(() => {
+      setCurrentIndex(prev => (prev + 1) % slideIds.length);
       setTransitionClass(`${currentEffect}-in`);
+      transitioningRef.current = false;
     }, 300);
-  }, [slides.length]);
+  }, [slideIds.length, currentSlideshow]);
 
   const goPrev = useCallback(() => {
-    const currentEffect = effectRef.current;
+    if (slideIds.length === 0 || transitioningRef.current) return;
+    const currentEffect = currentSlideshow?.transitionEffect ?? 'fade';
+    transitioningRef.current = true;
     setTransitionClass(`${currentEffect}-out`);
-    setTimeout(() => {
-      setCurrentIndex(prev => (prev - 1 + slides.length) % slides.length);
+    transitionTimerRef.current = window.setTimeout(() => {
+      setCurrentIndex(prev => (prev - 1 + slideIds.length) % slideIds.length);
       setTransitionClass(`${currentEffect}-in`);
+      transitioningRef.current = false;
     }, 300);
-  }, [slides.length]);
+  }, [slideIds.length, currentSlideshow]);
 
   // 自动播放定时器（依赖 goNext，需在 goNext 定义之后）
   useEffect(() => {
-    if (!currentSlideshow || !currentSlideshow.autoPlay || !isPlaying || slides.length === 0) return;
+    if (!currentSlideshow || !currentSlideshow.autoPlay || !isPlaying || slideIds.length === 0) return;
 
     const timer = window.setInterval(() => {
       goNext();
     }, currentSlideshow.interval * 1000);
 
     return () => clearInterval(timer);
-  }, [currentSlideshow, isPlaying, slides.length, goNext]);
+  }, [currentSlideshow, isPlaying, slideIds.length, goNext]);
 
   const getTransitionStyle = (effect: string, className: string) => {
     switch (effect) {
@@ -172,7 +215,7 @@ export default function SlideshowPlay() {
         return { opacity: className.includes('out') ? 0 : 1, transition: 'opacity 0.3s ease' };
       case 'slide':
         return {
-          transform: className.includes('out') ? 'translateX(100%)' : className.includes('in') ? 'translateX(0)' : '-translateX(100%)',
+          transform: className.includes('out') ? 'translateX(100%)' : className.includes('in') ? 'translateX(0)' : 'translateX(-100%)',
           transition: 'transform 0.5s ease'
         };
       case 'zoom':
@@ -233,31 +276,36 @@ export default function SlideshowPlay() {
     );
   }
 
-  if (!currentSlideshow || slides.length === 0) {
+  if (!currentSlideshow || slideIds.length === 0) {
     return (
       <div className="fixed inset-0 bg-black flex items-center justify-center text-white/50">
-        Loading...
+        加载中...
       </div>
     );
   }
 
-  const slide = slides[currentIndex];
+  const currentId = slideIds[currentIndex];
+  const currentUrl = urlMap[currentId];
   const effect = currentSlideshow.transitionEffect;
-  const slideData = currentSlideshow.images.find(s => s.imageId === slide.id);
+  const slideData = currentSlideshow.images.find(s => s.imageId === currentId);
 
   return (
     <div className="fixed inset-0 bg-black overflow-hidden">
       {/* Image */}
       <div className="absolute inset-0 flex items-center justify-center">
-        <img
-          src={slide.url}
-          alt=""
-          className="max-w-full max-h-full object-contain"
-          style={getTransitionStyle(effect, transitionClass)}
-        />
+        {currentUrl ? (
+          <img
+            src={currentUrl}
+            alt=""
+            className="max-w-full max-h-full object-contain"
+            style={getTransitionStyle(effect, transitionClass)}
+          />
+        ) : (
+          <div className="w-10 h-10 rounded-full border-2 border-white/20 border-t-white/80 animate-spin" />
+        )}
 
         {/* Overlay text */}
-        {slideData?.overlayText && (
+        {currentUrl && slideData?.overlayText && (
           <div
             className={`absolute text-white transition-all duration-300 ${transitionClass}`}
             style={{
@@ -283,7 +331,7 @@ export default function SlideshowPlay() {
             {currentSlideshow.name}
           </div>
           <div className="flex items-center gap-2 text-white/80 text-sm shrink-0">
-            {currentIndex + 1} / {slides.length}
+            {currentIndex + 1} / {slideIds.length}
           </div>
         </div>
 

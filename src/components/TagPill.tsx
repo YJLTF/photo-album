@@ -16,9 +16,9 @@ export default function TagPill({ tag, selected = false, onToggle, onRemove }: T
         "group inline-flex items-center gap-1.5 px-3 py-1 rounded-full text-xs font-medium transition-all duration-200 border",
         selected
           ? "bg-[#E8845C]/20 border-[#E8845C]/50 text-[#E8845C] shadow-[0_0_10px_rgba(232,132,92,0.2)]"
-          : "bg-white/5 border-white/10 text-[#F5F0EB]/70 hover:border-white/20 hover:text-[#F5F0EB]"
+          : "bg-white/5 border-white/10 text-[#F5F0EB]/70 hover:border-white/20 hover:text-[#F5F0EB]",
+        "font-sans"
       )}
-      style={{ fontFamily: "'DM Sans', sans-serif" }}
     >
       {/* Color dot */}
       <span

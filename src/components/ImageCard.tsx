@@ -76,8 +76,8 @@ export default function ImageCard({
         </button>
       )}
 
-      {/* Hover overlay（触屏没有 hover，操作按钮在移动端常显） */}
-      <div className="absolute inset-0 bg-gradient-to-t from-black/70 via-transparent to-transparent opacity-100 md:opacity-0 md:group-hover:opacity-100 transition-opacity duration-300 flex items-end justify-center pb-4 gap-2">
+      {/* Hover overlay（触屏没有 hover，操作按钮在移动端常显；移动端抬底避开常显的名称条） */}
+      <div className="absolute inset-0 bg-gradient-to-t from-black/70 via-transparent to-transparent opacity-100 md:opacity-0 md:group-hover:opacity-100 transition-opacity duration-300 flex items-end justify-center pb-9 md:pb-4 gap-2">
         <button
           onClick={(e) => {
             e.stopPropagation();
@@ -143,8 +143,8 @@ export default function ImageCard({
         )}
       </div>
 
-      {/* Name tooltip */}
-      <div className="absolute bottom-0 left-0 right-0 px-2 py-1.5 bg-black/50 backdrop-blur-sm text-xs text-[#F5F0EB] truncate opacity-0 group-hover:opacity-100 transition-opacity duration-200">
+      {/* Name tooltip（触屏没有 hover，与操作按钮一样在移动端常显） */}
+      <div className="absolute bottom-0 left-0 right-0 px-2 py-1.5 bg-black/50 backdrop-blur-sm text-xs text-[#F5F0EB] truncate opacity-100 md:opacity-0 md:group-hover:opacity-100 transition-opacity duration-200">
         {image.name}
       </div>
     </div>

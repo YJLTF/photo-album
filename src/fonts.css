@@ -1,0 +1,18 @@
+/* 自托管的标题/正文西文字体（latin 子集，可变字重）：
+   避免运行时依赖 fonts.googleapis.com（国内自托管环境不可达会拖慢首屏）；
+   中文无对应字形，由 :root 的系统字体栈渲染，与原 Google Fonts 行为一致 */
+@font-face {
+  font-family: 'DM Sans';
+  font-style: normal;
+  font-weight: 100 900;
+  font-display: swap;
+  src: url('/fonts/DMSans-latin.woff2') format('woff2');
+}
+
+@font-face {
+  font-family: 'Playfair Display';
+  font-style: normal;
+  font-weight: 400 900;
+  font-display: swap;
+  src: url('/fonts/PlayfairDisplay-latin.woff2') format('woff2');
+}

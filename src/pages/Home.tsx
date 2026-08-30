@@ -1,5 +1,5 @@
-import { useEffect, useState, useCallback } from "react";
-import { useNavigate } from "react-router-dom";
+import { useEffect, useState, useCallback, useRef } from "react";
+import { useNavigate, useLocation } from "react-router-dom";
 import { Plus, FolderOpen, Camera, Tag as TagIcon } from "lucide-react";
 import {
   albumApi,
@@ -24,6 +24,7 @@ import { toast } from "@/lib/toastStore";
 
 export default function Home() {
   const navigate = useNavigate();
+  const location = useLocation();
   const permission = localStorage.getItem("permission") as PermissionLevel;
 
   const [albums, setAlbums] = useState<Album[]>([]);
@@ -38,6 +39,17 @@ export default function Home() {
   const [editName, setEditName] = useState("");
   const [showTagModal, setShowTagModal] = useState(false);
   const [newTagName, setNewTagName] = useState("");
+
+  // viewer 从侧栏点"轮播"会带着 scrollTo 状态回到主页，渲染完成后滚动到轮播区块
+  const slideshowsRef = useRef<HTMLElement | null>(null);
+
+  useEffect(() => {
+    if ((location.state as { scrollTo?: string } | null)?.scrollTo === "slideshows") {
+      requestAnimationFrame(() => {
+        slideshowsRef.current?.scrollIntoView({ behavior: "smooth" });
+      });
+    }
+  }, [location.state]);
 
   const fetchData = useCallback(async () => {
     try {
@@ -54,6 +66,7 @@ export default function Home() {
       setRecentImages(recent);
     } catch (error) {
       console.error("Failed to fetch data:", error);
+      toast.error(error instanceof Error ? error.message : "数据加载失败，请刷新重试");
     }
   }, []);
 
@@ -64,41 +77,54 @@ export default function Home() {
   const handleCreateAlbum = useCallback(async () => {
     const name = newAlbumName.trim();
     if (!name) return;
-    await albumApi.create(name);
-    setNewAlbumName("");
-    setShowCreateModal(false);
-    toast.success("相册已创建");
-    fetchData();
+    try {
+      await albumApi.create(name);
+      setNewAlbumName("");
+      setShowCreateModal(false);
+      toast.success("相册已创建");
+      fetchData();
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : "创建失败");
+    }
   }, [newAlbumName, fetchData]);
 
   const handleRenameAlbum = useCallback(async () => {
     if (!editingAlbum || !editName.trim()) return;
-    await albumApi.update(editingAlbum.id, { name: editName.trim() });
-    setEditingAlbum(null);
-    setEditName("");
-    toast.success("相册名称已更新");
-    fetchData();
+    try {
+      await albumApi.update(editingAlbum.id, { name: editName.trim() });
+      setEditingAlbum(null);
+      setEditName("");
+      toast.success("相册名称已更新");
+      fetchData();
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : "重命名失败");
+    }
   }, [editingAlbum, editName, fetchData]);
 
   const handleDeleteAlbum = useCallback(async (id: string) => {
     const album = albums.find(a => a.id === id);
     if (!confirm(`确定要删除相册「${album?.name ?? ""}」吗？其中的 ${album?.imageCount ?? 0} 张图片将一并移入回收站。`)) return;
-    await albumApi.delete(id);
-    toast.success("相册已移入回收站，可在回收站中恢复");
-    fetchData();
+    try {
+      await albumApi.delete(id);
+      toast.success("相册已移入回收站，可在回收站中恢复");
+      fetchData();
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : "删除失败");
+    }
   }, [albums, fetchData]);
 
   const handleUpload = useCallback(async (
     files: FileList,
-    onFileProgress?: (fileName: string, percent: number) => void
+    onFileProgress?: (file: File, percent: number) => void
   ) => {
     if (!selectedAlbumId) return;
     try {
       for (let i = 0; i < files.length; i++) {
         const file = files[i];
-        await imageApi.upload(selectedAlbumId, file, percent => onFileProgress?.(file.name, percent));
+        await imageApi.upload(selectedAlbumId, file, percent => onFileProgress?.(file, percent));
+        onFileProgress?.(file, 100);
       }
-      toast.success(`已上传 ${files.length} 张照片`);
+      toast.success(files.length > 1 ? `已上传 ${files.length} 个文件` : "已上传");
       fetchData();
     } catch (error) {
       toast.error(error instanceof Error ? error.message : "上传失败");
@@ -123,37 +149,50 @@ export default function Home() {
 
   const handleDeleteTag = useCallback(async (id: string) => {
     const tag = tags.find(t => t.id === id);
-    if (!confirm(`确定要删除标签「${tag?.name ?? ""}」吗？`)) return;
-    await tagApi.delete(id);
-    toast.success("标签已删除");
-    fetchData();
-    window.dispatchEvent(new Event('tagDeleted'));
+    if (!confirm(`确定要删除标签「${tag?.name ?? ""}」吗？该标签将从所有图片上移除。`)) return;
+    try {
+      await tagApi.delete(id);
+      toast.success("标签已删除");
+      fetchData();
+      window.dispatchEvent(new Event('tagDeleted'));
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : "删除失败");
+    }
   }, [tags, fetchData]);
 
   const handleDeleteSlideshow = useCallback(async (id: string) => {
     const slideshow = slideshows.find(s => s.id === id);
     if (!confirm(`确定要删除轮播「${slideshow?.name ?? ""}」吗？`)) return;
-    await slideshowApi.delete(id);
-    toast.success("轮播已删除");
-    fetchData();
+    try {
+      await slideshowApi.delete(id);
+      toast.success("轮播已删除");
+      fetchData();
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : "删除失败");
+    }
   }, [slideshows, fetchData]);
 
   const handleUpdateCover = useCallback(async (albumId: string, file: File) => {
-    const newImage = await imageApi.upload(albumId, file);
-    await albumApi.update(albumId, { coverImageId: newImage.id });
-    fetchData();
+    try {
+      const newImage = await imageApi.upload(albumId, file);
+      await albumApi.update(albumId, { coverImageId: newImage.id });
+      toast.success("封面已更新");
+      fetchData();
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : "封面上传失败");
+    }
   }, [fetchData]);
 
   const canEdit = permission === "editor" || permission === "admin";
 
   return (
-    <div className="min-h-screen bg-[#1A1A2E] text-[#F5F0EB]" style={{ fontFamily: "'DM Sans', sans-serif" }}>
+    <div className="min-h-screen bg-[#1A1A2E] text-[#F5F0EB] font-sans">
       {/* Header */}
       <header className="sticky top-0 z-10 bg-[#16213E]/80 backdrop-blur-md border-b border-white/5">
         <div className="max-w-7xl mx-auto px-4 sm:px-6 py-3 sm:py-4">
           <div className="flex flex-wrap items-center justify-between gap-3">
             <div className="min-w-0">
-              <h1 className="text-xl sm:text-2xl font-bold" style={{ fontFamily: "'Playfair Display', serif" }}>我的相册</h1>
+              <h1 className="text-xl sm:text-2xl font-bold font-display">我的相册</h1>
               <p className="text-sm text-[#F5F0EB]/50 mt-1">管理您的照片和轮播</p>
             </div>
             {canEdit && (
@@ -210,6 +249,7 @@ export default function Home() {
                   onChange={(e) => setSelectedAlbumId(e.target.value)}
                   className="mt-2 w-full sm:mt-0 sm:w-auto sm:absolute sm:top-3 sm:right-3 bg-[#16213E]/80 backdrop-blur-sm text-[#F5F0EB] border border-white/10 rounded-lg px-3 py-1.5 text-xs focus:outline-none focus:border-[#E8845C]/50"
                 >
+                  <option value="">未选择相册</option>
                   {albums.map((a) => (
                     <option key={a.id} value={a.id}>{a.name}</option>
                   ))}
@@ -222,7 +262,7 @@ export default function Home() {
         {/* Tags section */}
         {tags.length > 0 && (
           <section className="mb-8">
-            <h2 className="text-lg font-semibold mb-3" style={{ fontFamily: "'Playfair Display', serif" }}>标签</h2>
+            <h2 className="text-lg font-semibold mb-3 font-display">标签</h2>
             <div className="flex flex-wrap gap-2">
               {tags.map((tag) => (
                 <TagPill key={tag.id} tag={tag} onRemove={canEdit ? () => handleDeleteTag(tag.id) : undefined} />
@@ -234,7 +274,7 @@ export default function Home() {
         {/* Album Grid */}
         {albums.length > 0 ? (
           <section className="mb-10">
-            <h2 className="text-xl font-semibold mb-4" style={{ fontFamily: "'Playfair Display', serif" }}>所有相册</h2>
+            <h2 className="text-xl font-semibold mb-4 font-display">所有相册</h2>
             <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-5">
               {albums.map((album) => (
                 <AlbumCard
@@ -267,7 +307,7 @@ export default function Home() {
             <div className="w-24 h-24 rounded-full bg-[#E8845C]/10 flex items-center justify-center mb-6">
               <FolderOpen size={48} className="text-[#E8845C]/60" />
             </div>
-            <h3 className="text-xl font-semibold mb-2" style={{ fontFamily: "'Playfair Display', serif" }}>暂无相册</h3>
+            <h3 className="text-xl font-semibold mb-2 font-display">暂无相册</h3>
             <p className="text-[#F5F0EB]/50 mb-6">创建您的第一个相册来开始整理照片</p>
             {canEdit && (
               <button
@@ -284,7 +324,7 @@ export default function Home() {
         {/* Recent images */}
         {recentImages.length > 0 && (
           <section className="mb-10">
-            <h2 className="text-xl font-semibold mb-4" style={{ fontFamily: "'Playfair Display', serif" }}>最近照片</h2>
+            <h2 className="text-xl font-semibold mb-4 font-display">最近照片</h2>
             <div className="grid grid-cols-4 sm:grid-cols-6 lg:grid-cols-8 gap-3">
               {recentImages.map((image) => (
                 <div
@@ -308,9 +348,9 @@ export default function Home() {
 
         {/* Slideshows */}
         {slideshows.length > 0 && (
-          <section>
+          <section ref={slideshowsRef}>
             <div className="flex items-center justify-between mb-4">
-              <h2 className="text-xl font-semibold" style={{ fontFamily: "'Playfair Display', serif" }}>轮播方案</h2>
+              <h2 className="text-xl font-semibold font-display">轮播方案</h2>
               {canEdit && (
                 <button
                   onClick={() => navigate("/slideshow/edit")}
@@ -331,7 +371,7 @@ export default function Home() {
                     imageCount: slideshow.imageCount ?? 0,
                     transitionEffect: EFFECT_LABELS[slideshow.transitionEffect],
                   }}
-                  onEdit={() => navigate(`/slideshow/edit?slideshowId=${slideshow.id}`)}
+                  onEdit={canEdit ? () => navigate(`/slideshow/edit?slideshowId=${slideshow.id}`) : undefined}
                   onDelete={canEdit ? () => handleDeleteSlideshow(slideshow.id) : undefined}
                   onPlay={() => navigate(`/slideshow/play?slideshowId=${slideshow.id}`)}
                 />
@@ -344,7 +384,7 @@ export default function Home() {
       {/* Create Album Modal */}
       <Modal isOpen={showCreateModal} onClose={() => setShowCreateModal(false)}>
         <div className="p-6">
-          <h3 className="text-lg font-semibold mb-4" style={{ fontFamily: "'Playfair Display', serif" }}>新建相册</h3>
+          <h3 className="text-lg font-semibold mb-4 font-display">新建相册</h3>
           <input
             type="text"
             value={newAlbumName}
@@ -374,7 +414,7 @@ export default function Home() {
       {editingAlbum && (
         <Modal isOpen={!!editingAlbum} onClose={() => setEditingAlbum(null)}>
           <div className="p-6">
-            <h3 className="text-lg font-semibold mb-4" style={{ fontFamily: "'Playfair Display', serif" }}>编辑相册名称</h3>
+            <h3 className="text-lg font-semibold mb-4 font-display">编辑相册名称</h3>
             <input
               type="text"
               value={editName}
@@ -403,7 +443,7 @@ export default function Home() {
       {/* Create Tag Modal */}
       <Modal isOpen={showTagModal} onClose={() => setShowTagModal(false)}>
         <div className="p-6">
-          <h3 className="text-lg font-semibold mb-4" style={{ fontFamily: "'Playfair Display', serif" }}>新建标签</h3>
+          <h3 className="text-lg font-semibold mb-4 font-display">新建标签</h3>
           <input
             type="text"
             value={newTagName}

@@ -6,6 +6,16 @@ import { TAG_COLORS } from "@/lib/constants";
 import { filterImages } from "@/lib/imageFilter";
 import Modal from "@/components/Modal";
 import VideoBadge from "@/components/VideoBadge";
+import { toast } from "@/lib/toastStore";
+
+// 选中标签用标签色作背景时，浅色（如黄色）配白字看不清；按亮度切换深浅文字
+const contrastText = (hex: string): string => {
+  const m = /^#([0-9a-f]{6})$/i.exec(hex);
+  if (!m) return "#FFFFFF";
+  const n = parseInt(m[1], 16);
+  const luminance = 0.299 * ((n >> 16) & 255) + 0.587 * ((n >> 8) & 255) + 0.114 * (n & 255);
+  return luminance > 160 ? "#1A1A2E" : "#FFFFFF";
+};
 
 export default function Tags() {
   const navigate = useNavigate();
@@ -53,25 +63,33 @@ export default function Tags() {
   const handleCreateTag = useCallback(async () => {
     const name = newTagName.trim();
     if (!name) return;
-    const color = TAG_COLORS[tags.length % TAG_COLORS.length];
-    await tagApi.create(name, color);
-    setNewTagName("");
-    setShowCreateModal(false);
-    fetchData();
-    window.dispatchEvent(new Event('tagCreated'));
+    try {
+      const color = TAG_COLORS[tags.length % TAG_COLORS.length];
+      await tagApi.create(name, color);
+      setNewTagName("");
+      setShowCreateModal(false);
+      fetchData();
+      window.dispatchEvent(new Event('tagCreated'));
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : "创建失败");
+    }
   }, [newTagName, tags.length, fetchData]);
 
   const handleDeleteTag = useCallback(async (id: string) => {
     const tag = tags.find(t => t.id === id);
-    if (!confirm(`确定要删除标签「${tag?.name ?? ""}」吗？`)) return;
-    await tagApi.delete(id);
-    setSelectedTags(prev => {
-      const newSet = new Set(prev);
-      newSet.delete(id);
-      return newSet;
-    });
-    fetchData();
-    window.dispatchEvent(new Event('tagDeleted'));
+    if (!confirm(`确定要删除标签「${tag?.name ?? ""}」吗？该标签将从所有图片上移除。`)) return;
+    try {
+      await tagApi.delete(id);
+      setSelectedTags(prev => {
+        const newSet = new Set(prev);
+        newSet.delete(id);
+        return newSet;
+      });
+      fetchData();
+      window.dispatchEvent(new Event('tagDeleted'));
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : "删除失败");
+    }
   }, [tags, fetchData]);
 
   const toggleTag = (tagId: string) => {
@@ -89,13 +107,13 @@ export default function Tags() {
   const canEdit = permission === "editor" || permission === "admin";
 
   return (
-    <div className="min-h-screen bg-[#1A1A2E]" style={{ fontFamily: "'DM Sans', sans-serif" }}>
+    <div className="min-h-screen bg-[#1A1A2E] font-sans">
       {/* Header */}
       <header className="sticky top-0 z-10 bg-[#16213E]/80 backdrop-blur-md border-b border-white/5">
         <div className="max-w-7xl mx-auto px-4 sm:px-6 py-3 sm:py-4">
           <div className="flex flex-wrap items-center justify-between gap-3">
             <div className="min-w-0">
-              <h1 className="text-lg sm:text-xl font-bold text-[#F5F0EB]" style={{ fontFamily: "'Playfair Display', serif" }}>
+              <h1 className="text-lg sm:text-xl font-bold text-[#F5F0EB] font-display">
                 标签筛选
               </h1>
               <p className="text-sm text-[#F5F0EB]/50 mt-1">
@@ -126,11 +144,12 @@ export default function Tags() {
                 onClick={() => toggleTag(tag.id)}
                 className={`flex items-center gap-2 px-4 py-2 rounded-full text-sm font-medium transition-all duration-200 ${
                   selectedTags.has(tag.id)
-                    ? "bg-opacity-100 text-white shadow-[0_0_12px_rgba(232,132,92,0.25)]"
+                    ? "shadow-[0_0_12px_rgba(232,132,92,0.25)]"
                     : "bg-white/5 text-[#F5F0EB]/60 hover:bg-white/10 hover:text-[#F5F0EB]"
                 }`}
                 style={{
                   backgroundColor: selectedTags.has(tag.id) ? tag.color : undefined,
+                  color: selectedTags.has(tag.id) ? contrastText(tag.color) : undefined,
                   borderColor: tag.color,
                   borderWidth: selectedTags.has(tag.id) ? 0 : 1,
                   borderStyle: 'solid'
@@ -194,7 +213,7 @@ export default function Tags() {
               <div className="w-24 h-24 rounded-full bg-white/5 flex items-center justify-center mb-6">
                 <TagIcon size={48} className="text-[#F5F0EB]/20" />
               </div>
-              <h3 className="text-xl font-semibold text-[#F5F0EB] mb-2" style={{ fontFamily: "'Playfair Display', serif" }}>
+              <h3 className="text-xl font-semibold text-[#F5F0EB] mb-2 font-display">
                 {selectedTags.size > 0 || searchQuery ? "没有匹配的图片" : "暂无图片"}
               </h3>
               <p className="text-[#F5F0EB]/50">尝试选择不同的标签或调整搜索条件</p>
@@ -206,7 +225,7 @@ export default function Tags() {
       {/* Create Tag Modal */}
       <Modal isOpen={showCreateModal} onClose={() => setShowCreateModal(false)}>
         <div className="p-6">
-          <h3 className="text-lg font-semibold text-[#F5F0EB] mb-4" style={{ fontFamily: "'Playfair Display', serif" }}>
+          <h3 className="text-lg font-semibold text-[#F5F0EB] mb-4 font-display">
             新建标签
           </h3>
           <input

@@ -42,12 +42,6 @@ export const getImageUrlWithAuth = (imageId: string): string =>
 export const getThumbnailUrlWithAuth = (imageId: string): string =>
   `${API_BASE}/images/${imageId}/thumbnail${tokenQuery()}`;
 
-export interface ApiResponse<T> {
-  success: boolean;
-  data?: T;
-  message?: string;
-}
-
 export interface LoginResponse {
   token: string;
   permission: PermissionLevel;
@@ -161,6 +155,15 @@ export const imageApi = {
       if (!res.ok) throw new Error("Image not found");
       return res.blob();
     });
+  },
+
+  // 预取原图进浏览器私有缓存（服务端带 Cache-Control），不产出 Blob、不占 JS 内存，
+  // 供预览页提前加载上一张/下一张，切换时近乎即时
+  warmup: (id: string): void => {
+    const token = getToken();
+    void fetch(`${API_BASE}/images/${id}`, {
+      headers: token ? { Authorization: `Bearer ${token}` } : {},
+    }).catch(() => {});
   },
 
   // 用 XMLHttpRequest 以获得真实的上传进度回调（fetch 不支持上传进度）。
@@ -343,6 +346,8 @@ export interface RecycleBinImage extends RecycleBinItem {
 export interface RecycleBinData {
   // true 表示服务端关闭了到期自动清理（RECYCLE_RETENTION_DAYS <= 0）
   autoPurgeDisabled?: boolean;
+  // 启用自动清理时的保留天数；关闭时为 null
+  retentionDays?: number | null;
   albums: RecycleBinAlbum[];
   images: RecycleBinImage[];
 }

@@ -6,13 +6,7 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover" />
     <meta name="theme-color" content="#1A1A2E" />
     <title>光影集 · 个人相册</title>
-    <!-- 字体改为 link 方式并行加载（CSS @import 会串行阻塞渲染），display=swap 保证先用系统字体渲染 -->
-    <link rel="preconnect" href="https://fonts.googleapis.com" />
-    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
-    <link
-      href="https://fonts.googleapis.com/css2?family=Playfair+Display:wght@400;600;700&family=DM+Sans:wght@300;400;500;600;700&display=swap"
-      rel="stylesheet"
-    />
+    <!-- 西文字体已自托管（public/fonts + src/fonts.css），不再依赖 fonts.googleapis.com -->
     <script type="module">
       if (import.meta.hot?.on) {
         import.meta.hot.on('vite:error', (error) => {
