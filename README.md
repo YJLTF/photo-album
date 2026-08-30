@@ -17,7 +17,7 @@
 
 ### 🖼️ 图片与视频管理
 - 拖拽或点击上传（支持批量，真实上传进度）
-- 支持视频上传（MP4 / WebM / MOV / MKV / AVI，≤ 500MB），上传时浏览器自动截取封面帧
+- 支持视频上传（MP4 / WebM / MOV / MKV / AVI / OGG，≤ 500MB），上传时浏览器自动截取封面帧
 - 网格展示（服务端 WebP 缩略图，按需生成并缓存；视频卡片带播放角标）
 - 全屏预览（图片缩放/旋转，视频原生播放器、支持拖动进度条）
 - 单张 / 批量删除（删除封面图时自动顺延到剩余的第一张）
@@ -74,7 +74,7 @@ npm start
 ```
 
 默认运行在 `http://localhost:3001`（可通过 `backend/.env` 中的 `PORT` 覆盖）。
-后端需要在 `backend/.env` 中设置 `JWT_SECRET`，未设置时启动会直接失败。
+后端需要在 `backend/.env` 中设置 `JWT_SECRET`，未设置时启动会直接失败（模板见 `backend/.env.example`，复制后填入即可）。
 
 > 首次启动会自动在 `data/photo-album.sqlite` 创建数据库，并插入默认管理员密钥 `admin123`。**生产环境请立即修改或删除。**
 
@@ -117,6 +117,7 @@ VITE_API_URL=http://localhost:3002/api
 | `npm run dev` | ts-node 直跑源码（开发用） |
 | `npm run build` | 编译到 `dist/` |
 | `npm start` | 跑编译产物（生产用） |
+| `npm test` | 运行单元测试（vitest，内存 SQLite + supertest） |
 
 ## Docker 部署
 
@@ -177,7 +178,7 @@ cp .deploy.env.example .deploy.env   # 填入服务器 SSH 密码（已被 .giti
 
 说明：
 
-- 目标服务器、路径等参数在 `deploy.sh` 顶部，可用环境变量 `DEPLOY_HOST` / `DEPLOY_USER` / `DEPLOY_DIR` / `DEPLOY_IMAGE` 覆盖。
+- 目标服务器、路径等参数在 `deploy.sh` 顶部，可用环境变量 `DEPLOY_HOST` / `DEPLOY_USER` / `DEPLOY_DIR` / `DEPLOY_IMAGE` 覆盖；**`DEPLOY_HOST` / `DEPLOY_USER` 必填**（出于隐私考虑不再内置默认值）。
 - 服务器上的 `.env`（含 `JWT_SECRET`）由服务器自行维护，部署脚本不会覆盖；`docker-compose.yml` 每次部署同步为仓库版本。
 - 前端构建的 `VITE_API_URL` 取自**服务器** env 配置，避免把本地开发地址（localhost）打进生产镜像。
 - 健康检查未通过时不删除旧镜像，可按脚本输出的命令手动回滚。
@@ -201,6 +202,7 @@ cp .deploy.env.example .deploy.env   # 填入服务器 SSH 密码（已被 .giti
 | `DATABASE_PATH` | SQLite 数据库文件路径 | 否 | `./data/photo-album.sqlite` |
 | `UPLOAD_DIR` | 上传图片存储目录 | 否 | `./uploads` |
 | `RECYCLE_RETENTION_DAYS` | 回收站保留天数，超期自动彻底删除；设为 `0` 或负数关闭自动清理 | 否 | `30` |
+| `TRUST_PROXY` | 部署在 nginx 等反向代理之后时设为 `1`，登录限流按真实客户端 IP 计数；直连部署保持关闭，避免 `X-Forwarded-For` 伪造绕过限流 | 否 | （关闭） |
 
 修改 `.env` 后需要 `docker-compose up -d --build` 重新构建（仅 `VITE_API_URL` 影响前端构建产物；`PORT` / `JWT_SECRET` 在容器启动时读取）。
 
@@ -264,6 +266,7 @@ photo-album/
 │   │   ├── toastStore.ts             # 全局操作反馈 Toast
 │   │   ├── videoPoster.ts            # 视频封面帧提取（浏览器端）
 │   │   ├── imageFilter.ts            # 标签/搜索纯函数过滤
+│   │   ├── overlayPosition.ts        # 轮播叠加文字位置 -> 样式（纯函数）
 │   │   ├── constants.ts              # 共享常量（权限文案、标签调色板、转场文案）
 │   │   └── utils.ts
 │   ├── App.tsx
@@ -287,7 +290,7 @@ photo-album/
 
 所有接口以 `/api` 为前缀，需在 Header 携带 `Authorization: Bearer <token>`（除登录接口外；图片文件接口也支持 `?token=` 查询参数）。
 
-> `<img>` 等标签无法携带请求头，前端会先调用 `/auth/media-token` 换取一个 **10 分钟有效的短期媒体令牌**拼进图片 URL——即使随 URL 进入访问日志或浏览器历史，泄露价值也很有限。媒体令牌只能访问图片文件与缩略图，不能调用任何数据接口。
+> `<img>` 等标签无法携带请求头，前端会先调用 `/auth/media-token` 换取一个 **10 分钟有效的短期媒体令牌**拼进图片 URL——即使随 URL 进入访问日志或浏览器历史，泄露价值也很有限。媒体令牌只能访问图片文件与缩略图，不能调用任何数据接口。媒体令牌签发失败（或恰好过期）时，前端会回退为在 URL 中携带完整 JWT 以保证图片仍可加载。
 
 | 模块 | 路径 | 方法 | 权限 | 说明 |
 |------|------|------|------|------|
@@ -307,7 +310,7 @@ photo-album/
 | 图片 | `/images/:id` | GET | 任意（媒体令牌可用） | 媒体文件本体（带一天浏览器缓存头；支持 Range 请求，视频可拖动进度条） |
 | 图片 | `/images` | POST | EDITOR+ | 图片（字段 `image`，≤ 20MB）或视频（字段 `video`，≤ 500MB，可附 `poster` 封面帧与宽高/时长）；图片记录真实宽高并预生成缩略图 |
 | 图片 | `/images/:id` | DELETE | EDITOR+ | 软删除（移入回收站） |
-| 回收站 | `/recycle-bin` | GET / DELETE | EDITOR+ | GET 返回各条目的 `autoPurgeAt`（到期自动删除时间）；DELETE 为清空回收站 |
+| 回收站 | `/recycle-bin` | GET / DELETE | EDITOR+ | GET 返回保留天数 `retentionDays` 与各条目的 `autoPurgeAt`（到期自动删除时间）；DELETE 为清空回收站 |
 | 回收站 | `/recycle-bin/albums/:id` | DELETE | EDITOR+ | 彻底删除相册及图片文件 |
 | 回收站 | `/recycle-bin/albums/:id/restore` | POST | EDITOR+ | 恢复相册（图片一并恢复） |
 | 回收站 | `/recycle-bin/images/:id` | DELETE | EDITOR+ | 彻底删除单张图片 |

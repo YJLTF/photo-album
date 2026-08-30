@@ -64,7 +64,7 @@ COPY --from=backend-build /build/node_modules  /app/node_modules
 # 复制前端静态资源
 COPY --from=frontend-build /build/dist         /app/public
 
-# 暴露端口
+# 实际监听端口由运行时 PORT 环境变量决定（docker-compose 默认 80）；EXPOSE 仅为元数据
 EXPOSE 3001
 
 # 运行配置

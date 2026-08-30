@@ -52,3 +52,6 @@ jobs:
 
       - name: TypeScript 类型检查与构建
         run: npm run build
+
+      - name: 单元测试
+        run: npm test

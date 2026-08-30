@@ -23,8 +23,9 @@
 set -euo pipefail
 
 # ---------- 配置（可用环境变量覆盖） ----------
-REMOTE_HOST="${DEPLOY_HOST:-192.168.31.241}"
-REMOTE_USER="${DEPLOY_USER:-yjltf}"
+# 出于隐私考虑不再内置默认服务器地址；通过环境变量或在此处填入
+REMOTE_HOST="${DEPLOY_HOST:-}"
+REMOTE_USER="${DEPLOY_USER:-}"
 REMOTE_DIR="${DEPLOY_DIR:-/app/photo-album}"
 IMAGE_NAME="${DEPLOY_IMAGE:-photo-album:latest}"
 CONTAINER_NAME="${CONTAINER_NAME:-photo-album-server}"
@@ -64,6 +65,7 @@ load_deploy_env() {
 }
 
 cmd_init() {
+  require_remote_config
   local pub="$HOME/.ssh/id_ed25519.pub"
   if [ ! -f "$pub" ]; then
     info "本地没有 SSH 密钥，先生成 id_ed25519 ..."
@@ -98,6 +100,14 @@ ensure_ssh() {
   fi
   warn "尚未配置 SSH 免密，尝试自动配置 ..."
   cmd_init
+}
+
+# 除 build/help 外的子命令都需要远端地址
+require_remote_config() {
+  if [ -z "$REMOTE_HOST" ] || [ -z "$REMOTE_USER" ]; then
+    die "未配置部署目标：请设置环境变量 DEPLOY_HOST / DEPLOY_USER（或在脚本顶部填入），例如:
+  DEPLOY_HOST=192.168.1.10 DEPLOY_USER=root ./deploy.sh"
+  fi
 }
 
 # ---------- 本地构建 / 导出 ----------
@@ -238,6 +248,7 @@ remote_vite_api_url() {
 }
 
 cmd_deploy() {
+  require_remote_config
   info "========== 一键部署 $IMAGE_NAME → $REMOTE_USER@$REMOTE_HOST:$REMOTE_DIR =========="
   ensure_ssh
   local vite
@@ -251,17 +262,20 @@ cmd_deploy() {
 }
 
 cmd_status() {
+  require_remote_config
   ensure_ssh
   ssh_run "docker ps -a --filter name=$CONTAINER_NAME --format 'table {{.Names}}\t{{.Status}}\t{{.Ports}}'; docker images '$IMAGE_NAME'; df -h '$REMOTE_DIR' | tail -1"
 }
 
 cmd_logs() {
+  require_remote_config
   ensure_ssh
   ssh_run "docker logs -f --tail 100 '$CONTAINER_NAME'"
 }
 
 # ---------- 服务器数据备份 ----------
 cmd_backup() {
+  require_remote_config
   ensure_ssh
   local ts
   ts=$(date +%Y%m%d-%H%M%S)
